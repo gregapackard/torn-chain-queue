@@ -15,7 +15,8 @@
 // @connect      axpmotlarzmmhjggmgce.supabase.co
 // @homepageURL  https://github.com/gregapackard/torn-chain-queue
 // @supportURL   https://github.com/gregapackard/torn-chain-queue/issues
-// ==/UserScript==()=>{"use strict";
+// ==/UserScript==
+(()=>{"use strict";
 const PDAK="###PDA-APIKEY###",U="https://axpmotlarzmmhjggmgce.supabase.co",K="sb_publishable_hIkbXGYNCkv-Gm4aaDFxcQ_t1pX8Urw",S="main-chain",A="https://api.torn.com/v2",KS="chainQueue.tornApiKey",PS="chainQueue.pos",SS="chainQueue.sound";
 let me=null,q=[],secs=null,count=0,apiFails=0,myAttackCursor=null,lastSharedLoad=0,lastTimerSync=0,lastEnergyPush=0,lastNextId=null,lastQueueSig=null,audioCtx=null,pdaHttpChain=Promise.resolve(),diag={queue:false,id:false,key:false,torn:false,energy:false,last:""},session={leader_id:null,leader_name:null,trigger_seconds:240,paused:false,manual_hit_player_id:null,last_attack_id:null,chain_timer_seconds:null,chain_timer_synced_at:null,chain_count:0};
 const $=x=>document.querySelector(x),cq=x=>document.querySelector("#cq "+x),storeGet=(k,d="")=>{try{let v=GM_getValue(k);if(v!==undefined&&v!==null&&v!=="")return v}catch{}try{return localStorage.getItem(k)??d}catch{return d}},storeSet=(k,v)=>{try{GM_setValue(k,v)}catch{}try{localStorage.setItem(k,v)}catch{}},fmt=n=>n==null?"--:--":Math.floor(n/60)+":"+String(Math.max(0,n%60)).padStart(2,"0");
