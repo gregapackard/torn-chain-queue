@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Cloudy's Chain Manager
 // @namespace https://github.com/gregapackard/torn-chain-queue
-// @version 0.4.2
+// @version 0.4.3
 // @description Live Torn chaining rotation overlay
 // @match https://www.torn.com/*
 // @grant GM_xmlhttpRequest
@@ -24,7 +24,7 @@ function msg(x){$(".msg").textContent=x||""}
 function request(url,opt={}){return new Promise((resolve,reject)=>GM_xmlhttpRequest({method:opt.method||"GET",url,headers:opt.headers||{},data:opt.body,onload:r=>{let j=null;try{j=r.responseText?JSON.parse(r.responseText):null}catch{};if(r.status<200||r.status>=300)reject(Error(j?.error?.error||j?.error?.message||"HTTP "+r.status));else resolve(j)},onerror:()=>reject(Error("Network request failed"))}))}
 async function torn(p){let k=localStorage.getItem(KS);if(!k)throw Error("Enter a Limited API key");let j=await request(A+p,{headers:{Authorization:"ApiKey "+k}});if(j?.error)throw Error(j.error?.error||j.error?.message||"Torn API error");return j}
 async function db(path,opt={}){return request(U+"/rest/v1/"+path,{method:opt.method||"GET",headers:{apikey:K,Authorization:"Bearer "+K,"Content-Type":"application/json",Prefer:opt.prefer||"return=minimal",...(opt.headers||{})},body:opt.body})}
-async function load(){q=await db("chain_queue?session_id=eq."+S+"&select=*&order=position.asc,joined_at.asc",{method:"GET"})||[];let s=await db("chain_sessions?session_id=eq."+S+"&select=*",{method:"GET"})||[];if(s[0])session=s[0];render()}
+async function load(){q=await db("chain_queue?session_id=eq."+S+"&select=*&order=position.asc,joined_at.asc",{method:"GET"})||[];let s=await db("chain_sessions?session_id=eq."+S+"&select=*",{method:"GET"})||[];if(s[0])session=s[0];let valid=q.some(x=>+x.player_id===+session.leader_id);if(q.length&&!valid){let x=q[0];await db("chain_sessions?session_id=eq."+S,{method:"PATCH",body:JSON.stringify({leader_id:+x.player_id,leader_name:x.player_name,leader_heartbeat_at:null,updated_at:new Date().toISOString()})});session={...session,leader_id:+x.player_id,leader_name:x.player_name,leader_heartbeat_at:null}}render()}
 async function saveSession(p){await db("chain_sessions?session_id=eq."+S,{method:"PATCH",body:JSON.stringify({...p,updated_at:new Date().toISOString()})});await load()}
 function leader(){return !!me&&+session.leader_id===me.id}
 function target(){return +($("#target")?.value||0)}
