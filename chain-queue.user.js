@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Cloudy's Chain Manager
 // @namespace https://github.com/gregapackard/torn-chain-queue
-// @version 0.5.0
+// @version 0.5.1
 // @description Live Torn chaining rotation overlay
 // @match https://www.torn.com/*
 // @grant GM_xmlhttpRequest
@@ -33,9 +33,9 @@ async function manualHit(){if(!leader()||!q[0])return;await saveSession({manual_
 async function togglePause(){if(!leader())return;await saveSession({paused:!session.paused})}
 async function skip(){let id=target();if(!leader()||!id)return;if(!confirm("Skip this player to the bottom?"))return;await rpc("chain_skip",{p_session:S,p_leader_id:me.id,p_player_id:id});await load();msg("Player skipped")}
 async function removeTarget(){let id=target();if(!leader()||!id)return;if(!confirm("Remove this player from the chain queue?"))return;await rpc("chain_remove",{p_session:S,p_leader_id:me.id,p_player_id:id});await load();msg("Removed from queue")}
-async function passLead(){let id=target(),x=q.find(v=>+v.player_id===id);if(!leader()||!x)return;if(!confirm("Pass Chain Lead to "+x.player_name+"?"))return;await rpc("chain_pass_lead",{p_session:S,p_current_leader:me.id,p_new_leader:id});await load();msg("Chain lead passed to "+x.player_name)});msg("Chain lead passed to "+x.player_name)}
+async function passLead(){let id=target(),x=q.find(v=>+v.player_id===id);if(!leader()||!x)return;if(!confirm("Pass Chain Lead to "+x.player_name+"?"))return;await rpc("chain_pass_lead",{p_session:S,p_current_leader:me.id,p_new_leader:id});await load();msg("Chain lead passed to "+x.player_name)}
 async function join(){if(!me)return;await rpc("chain_join",{p_session:S,p_player_id:me.id,p_player_name:me.name});await load();msg(leader()?"Joined — you are Chain Leader":"Joined")}
-async function leave(){if(!me)return;if(leader()&&q.length>1&&!confirm("You are Chain Leader. Leave and hand leadership to NEXT?"))return;await rpc("chain_leave",{p_session:S,p_player_id:me.id});await load();msg("Left queue")});await load();if(q.length===0)await saveSession({leader_id:null,leader_name:null,leader_heartbeat_at:null,manual_hit_player_id:null,manual_hit_at:null,paused:false});else if(wasLeader)await saveSession({leader_id:+q[0].player_id,leader_name:q[0].player_name,leader_heartbeat_at:null});msg("Left queue")}
+async function leave(){if(!me)return;if(leader()&&q.length>1&&!confirm("You are Chain Leader. Leave and hand leadership to NEXT?"))return;await rpc("chain_leave",{p_session:S,p_player_id:me.id});await load();msg("Left queue")}
 async function bottom(id,name,attackId=null){let changed=await rpc("chain_move_bottom",{p_session:S,p_player_id:+id,p_attack_id:attackId});await load();if(changed)msg((name||"Player")+" hit → bottom");return changed}
 function rows(j){let v=j.attacks||j;return Array.isArray(v)?v:Object.values(v||{}).filter(x=>x&&typeof x==="object")}
 function good(a){let id=+(a.attacker?.id||a.attacker_id||0),r=a.respect_gain??a.respect;if(!id)return false;if(r!=null)return +r>0;return !/lost|stalemate|escape/i.test(a.result||"")}
