@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Cloudy's Chain Manager
 // @namespace https://github.com/gregapackard/torn-chain-queue
-// @version 0.4.0
+// @version 0.4.1
 // @description Live Torn chaining rotation overlay
 // @match https://www.torn.com/*
 // @grant GM_xmlhttpRequest
@@ -34,8 +34,8 @@ async function togglePause(){if(!leader())return;await saveSession({paused:!sess
 async function skip(){let id=target();if(!leader()||!id)return;let x=q.find(v=>+v.player_id===id);if(x)await bottom(id,x.player_name)}
 async function removeTarget(){let id=target();if(!leader()||!id)return;await db("chain_queue?session_id=eq."+S+"&player_id=eq."+id,{method:"DELETE"});await load();msg("Removed from queue")}
 async function passLead(){let id=target(),x=q.find(v=>+v.player_id===id);if(!leader()||!x)return;await saveSession({leader_id:+x.player_id,leader_name:x.player_name,leader_heartbeat_at:new Date().toISOString()});msg("Chain lead passed to "+x.player_name)}
-async function join(){await load();if(q.some(x=>+x.player_id===me.id))return;let m=q.reduce((a,x)=>Math.max(a,+x.position||0),0);await db("chain_queue",{method:"POST",body:JSON.stringify({session_id:S,player_id:me.id,player_name:me.name,position:m+1}),prefer:"resolution=merge-duplicates,return=minimal"});await load();msg("Joined")}
-async function leave(){await db("chain_queue?session_id=eq."+S+"&player_id=eq."+me.id,{method:"DELETE"});await load();msg("Left queue")}
+async function join(){await load();if(q.some(x=>+x.player_id===me.id))return;let first=q.length===0,m=q.reduce((a,x)=>Math.max(a,+x.position||0),0);await db("chain_queue",{method:"POST",body:JSON.stringify({session_id:S,player_id:me.id,player_name:me.name,position:m+1}),prefer:"resolution=merge-duplicates,return=minimal"});if(first||!session.leader_id)await saveSession({leader_id:me.id,leader_name:me.name,leader_heartbeat_at:new Date().toISOString()});else await load();msg(first?"Joined — you are Chain Leader":"Joined")}
+async function leave(){let wasLeader=leader();await db("chain_queue?session_id=eq."+S+"&player_id=eq."+me.id,{method:"DELETE"});await load();if(q.length===0)await saveSession({leader_id:null,leader_name:null,leader_heartbeat_at:null,manual_hit_player_id:null,manual_hit_at:null,paused:false});else if(wasLeader)await saveSession({leader_id:+q[0].player_id,leader_name:q[0].player_name,leader_heartbeat_at:null});msg("Left queue")}
 async function bottom(id,name){await load();let row=q.find(x=>+x.player_id===+id);if(!row)return;let m=q.reduce((a,x)=>Math.max(a,+x.position||0),0);await db("chain_queue?session_id=eq."+S+"&player_id=eq."+id,{method:"PATCH",body:JSON.stringify({position:m+1,last_hit_at:new Date().toISOString()})});await load();msg((name||row.player_name)+" hit → bottom")}
 function rows(j){let v=j.attacks||j;return Array.isArray(v)?v:Object.values(v||{}).filter(x=>x&&typeof x==="object")}
 function good(a){let id=+(a.attacker?.id||a.attacker_id||0),r=a.respect_gain??a.respect;if(!id)return false;if(r!=null)return +r>0;return !/lost|stalemate|escape/i.test(a.result||"")}
