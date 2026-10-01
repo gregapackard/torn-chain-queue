@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Cloudy's Chain Manager
 // @namespace https://github.com/gregapackard/torn-chain-queue
-// @version 0.9.17
+// @version      0.9.20
 // @description Live Torn chaining rotation overlay
 // @match https://www.torn.com/*
 // @grant GM_xmlhttpRequest
