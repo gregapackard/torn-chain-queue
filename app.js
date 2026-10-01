@@ -1,6 +1,6 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 const C=window.CHAIN_CONFIG||{}, $=s=>document.querySelector(s);
-let sb=null, me=null, queue=[], lastAttackId=null, timerSeconds=null, pollHandle=null, channel=null;
+let sb=null, me=null, queue=[], lastAttackId=null, timerSeconds=null, chainCount=0, pollHandle=null, channel=null;
 const keyStore="chainQueue.tornApiKey";
 const apiBase="https://api.torn.com/v2";
 function say(s){$("#msg").textContent=s||""}
@@ -8,7 +8,7 @@ function fmt(sec){if(sec==null)return"--:--";sec=Math.max(0,Math.floor(sec));ret
 function render(){
  $("#timer").textContent=fmt(timerSeconds); $("#queueCount").textContent=queue.length;
  const next=queue[0]; $("#nextName").textContent=next?next.player_name:"Nobody queued";
- const hit=!!next&&timerSeconds!=null&&timerSeconds<=C.triggerSeconds;
+ const hit=!!next&&chainCount>0&&timerSeconds!=null&&timerSeconds>0&&timerSeconds<=C.triggerSeconds;
  document.querySelector(".hero").classList.toggle("hitnow",hit);
  $("#callout").textContent=!next?"Waiting for players":hit?(me&&next.player_id===me.id?"🔥 YOU — HIT NOW":"🔥 "+next.player_name+" — HIT NOW"):"Next hit at "+fmt(C.triggerSeconds);
  $("#join").disabled=!me||queue.some(x=>x.player_id===me.id)||!sb; $("#leave").disabled=!me||!queue.some(x=>x.player_id===me.id)||!sb;
@@ -26,7 +26,7 @@ function attackRows(j){const v=j.attacks||j;return Array.isArray(v)?v:Object.val
 function qualifies(a){const result=String(a.result||"").toLowerCase();return !["lost","stalemate","escape","assist"].some(x=>result.includes(x)) && Number(a.attacker?.id||a.attacker_id||0)>0}
 async function pollTorn(){
  try{
-  const chain=await torn("/faction/chain");const ch=chain.chain||chain;timerSeconds=Number(ch.timeout??ch.time_left??ch.cooldown??0);$("#chainCount").textContent=ch.current??ch.chain??"--";render();
+  const chain=await torn("/faction/chain");const ch=chain.chain||chain;timerSeconds=Number(ch.timeout??ch.time_left??ch.cooldown??0);chainCount=Number(ch.current??ch.chain??0);$("#chainCount").textContent=chainCount||0;render();
   const attacks=await torn("/faction/attacks?limit=20&sort=DESC");const rows=attackRows(attacks).filter(qualifies).sort((a,b)=>Number(b.ended||b.timestamp||0)-Number(a.ended||a.timestamp||0));
   if(rows.length){const newest=rows[0], id=String(newest.id||newest.attack_id||newest.code||newest.ended);if(lastAttackId===null){lastAttackId=id}else if(id!==lastAttackId){const unseen=[];for(const a of rows){const aid=String(a.id||a.attack_id||a.code||a.ended);if(aid===lastAttackId)break;unseen.push(a)}lastAttackId=id;unseen.reverse();for(const a of unseen){const pid=Number(a.attacker?.id||a.attacker_id);const n=a.attacker?.name||a.attacker_name;await moveHitToBottom(pid,n)}}}
   $("#conn").textContent="LIVE";
