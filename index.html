@@ -1,16 +1,12 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Chain Queue</title><link rel="stylesheet" href="style.css"></head>
+<title>Cloudy's Chain Manager</title><link rel="stylesheet" href="style.css"></head>
 <body><main class="wrap">
-<header><div><div class="eyebrow">TORN CHAIN</div><h1>Chain Queue</h1></div><div id="conn" class="pill">SETUP</div></header>
-<section class="card hero"><div class="timerLabel">CHAIN TIMER</div><div id="timer" class="timer">--:--</div><div id="callout" class="callout">Connect your API key</div><div id="nextName" class="next">Nobody queued</div></section>
-<section class="card controls">
-<label>Torn API key — Limited Access required <input id="apiKey" type="password" autocomplete="off" placeholder="Paste Limited Access key"></label><div class="muted">Use a <b>Limited Access</b> key. Public Only is not enough; Full Access is unnecessary and should not be used. Your Torn key is stored only on this device and is never sent to the shared queue database.</div>
-<div class="row"><button id="saveKey">Connect</button><button id="join" disabled>Join queue</button><button id="leave" class="secondary" disabled>Leave</button></div>
-<div id="me" class="muted"></div>
-</section>
-<section class="card"><div class="sectionHead"><h2>Rotation</h2><span id="trigger">HIT @ 4:00</span></div><ol id="queue" class="queue"><li class="empty">No active queue yet.</li></ol></section>
-<section class="card status"><div><span>Chain</span><b id="chainCount">--</b></div><div><span>Queued</span><b id="queueCount">0</b></div><div><span>Last hit</span><b id="lastHit">--</b></div></section>
-<div id="msg" class="msg"></div>
-<footer>Live only. API keys stay on your device; shared storage contains queue state only.</footer>
+<header><div><div class="eyebrow">TORN CHAIN</div><h1>Cloudy's Chain Manager</h1></div><div id="conn" class="pill">SETUP</div></header>
+<section class="card hero"><div class="timerLabel">CHAIN TIMER</div><div id="timer" class="timer">--:--</div><div id="callout" class="callout">Connect your Limited API key</div><div id="nextName" class="next">Nobody queued</div></section>
+<section class="card controls"><label>Torn API key — Limited Access <input id="apiKey" type="password" autocomplete="off" placeholder="Limited API key"></label><div class="muted">Stored only in this browser. It is never sent to the shared queue database.</div><div class="row"><button id="saveKey">Connect</button><button id="join" disabled>Join queue</button><button id="leave" class="secondary" disabled>Leave</button></div><div id="me" class="muted"></div></section>
+<section class="card"><div class="sectionHead"><h2>Rotation</h2><span id="trigger">HIT @ 4:00</span></div><div id="leader" class="leader">⚠ No chain leader</div><ol id="queue" class="queue"><li class="empty">No active queue yet.</li></ol></section>
+<section id="admin" class="card admin hidden"><div class="sectionHead"><h2>👑 Leader controls</h2><span>Automatic verifier active</span></div><div class="row"><label class="compact">Hit time<select id="tempo"><option value="120">2:00</option><option value="180">3:00</option><option value="240">4:00</option><option value="300">5:00</option><option value="360">6:00</option></select></label><button id="hitnow">HIT NOW</button><button id="pause">Pause</button></div><div class="row"><select id="target"></select><button id="skip">Skip</button><button id="remove" class="danger">Remove</button><button id="pass">Pass lead</button></div></section>
+<section class="card status"><div><span>Chain</span><b id="chainCount">--</b></div><div><span>Queued</span><b id="queueCount">0</b></div><div><span>Your position</span><b id="myPos">--</b></div></section>
+<div id="msg" class="msg"></div><footer>PC companion for the same live queue used by the Torn userscript.</footer>
 </main><script src="config.js"></script><script type="module" src="app.js"></script></body></html>
