@@ -1,10 +1,14 @@
 // ==UserScript==
 // @name Torn Chain Queue
 // @namespace https://github.com/gregapackard/torn-chain-queue
-// @version 0.2.1
+// @version 0.3.0
 // @description Live Torn chaining rotation overlay
 // @match https://www.torn.com/*
-// @grant none
+// @grant GM_xmlhttpRequest
+// @connect api.torn.com
+// @connect axpmotlarzmmhjggmgce.supabase.co
+// @updateURL https://raw.githubusercontent.com/gregapackard/torn-chain-queue/main/chain-queue.user.js
+// @downloadURL https://raw.githubusercontent.com/gregapackard/torn-chain-queue/main/chain-queue.user.js
 // @run-at document-idle
 // @license MIT
 // ==/UserScript==
@@ -17,8 +21,9 @@ function place(d){let p;try{p=JSON.parse(localStorage.getItem(PS)||"null")}catch
 function drag(el,handle){let sx,sy,l,t,moved=false;const down=e=>{if(e.target.closest("input,button,.min"))return;if(e.button!=null&&e.button!==0)return;sx=e.clientX??e.touches?.[0]?.clientX;sy=e.clientY??e.touches?.[0]?.clientY;let r=el.getBoundingClientRect();l=r.left;t=r.top;moved=false;document.addEventListener("mousemove",move);document.addEventListener("mouseup",up);document.addEventListener("touchmove",move,{passive:false});document.addEventListener("touchend",up)};const move=e=>{let x=e.clientX??e.touches?.[0]?.clientX,y=e.clientY??e.touches?.[0]?.clientY;if(x==null)return;e.preventDefault();if(Math.abs(x-sx)+Math.abs(y-sy)>5)moved=true;el.style.right="auto";el.style.bottom="auto";el.style.left=Math.max(0,Math.min(innerWidth-el.offsetWidth,l+x-sx))+"px";el.style.top=Math.max(0,Math.min(innerHeight-el.offsetHeight,t+y-sy))+"px"};const up=()=>{document.removeEventListener("mousemove",move);document.removeEventListener("mouseup",up);document.removeEventListener("touchmove",move);document.removeEventListener("touchend",up);let r=el.getBoundingClientRect();localStorage.setItem(PS,JSON.stringify({x:r.left,y:r.top}));setTimeout(()=>moved=false,50)};handle.addEventListener("mousedown",down);handle.addEventListener("touchstart",down,{passive:true});return()=>moved}
 function mount(){let d=document.createElement("div");d.id="cq";d.innerHTML=`<style>${css}</style><div class="bubble">CQ</div><div class="panel"><h3>CHAIN QUEUE <span id="st">SETUP</span><span class="min">−</span></h3><div class="b"><div class="hero"><div class="tm">--:--</div><div class="call">Connect API</div><div class="nx">Nobody queued</div></div><div class="key"><input id="ck" type="password" placeholder="Limited API key"><button id="con">Connect</button></div><div class="acts"><button id="join" disabled>Join</button><button id="leave" disabled>Leave</button></div><ol class="list"></ol><div class="meta"></div><div class="msg"></div></div></div>`;document.body.appendChild(d);place(d);$("#ck").value=localStorage.getItem(KS)||"";let wasDrag=drag(d,$("#cq .bubble"));drag(d,$("#cq h3"));$("#cq .bubble").onclick=()=>{if(!wasDrag())d.classList.add("open")};$("#cq .min").onclick=e=>{e.stopPropagation();d.classList.remove("open")};$("#con").onclick=connect;$("#join").onclick=join;$("#leave").onclick=leave;render()}
 function msg(x){$(".msg").textContent=x||""}
-async function torn(p){let k=localStorage.getItem(KS);if(!k)throw Error("Enter a Limited API key");let r=await fetch(A+p,{headers:{Authorization:"ApiKey "+k}}),j=await r.json();if(!r.ok||j.error)throw Error(j.error?.error||j.error?.message||"Torn API error");return j}
-async function db(path,opt={}){let h={apikey:K,Authorization:"Bearer "+K,"Content-Type":"application/json",Prefer:opt.prefer||"return=minimal"};let r=await fetch(U+"/rest/v1/"+path,{...opt,headers:{...h,...opt.headers}});if(!r.ok)throw Error("Queue backend error");let t=await r.text();return t?JSON.parse(t):null}
+function request(url,opt={}){return new Promise((resolve,reject)=>GM_xmlhttpRequest({method:opt.method||"GET",url,headers:opt.headers||{},data:opt.body,onload:r=>{let j=null;try{j=r.responseText?JSON.parse(r.responseText):null}catch{};if(r.status<200||r.status>=300)reject(Error(j?.error?.error||j?.error?.message||"HTTP "+r.status));else resolve(j)},onerror:()=>reject(Error("Network request failed"))}))}
+async function torn(p){let k=localStorage.getItem(KS);if(!k)throw Error("Enter a Limited API key");let j=await request(A+p,{headers:{Authorization:"ApiKey "+k}});if(j?.error)throw Error(j.error?.error||j.error?.message||"Torn API error");return j}
+async function db(path,opt={}){return request(U+"/rest/v1/"+path,{method:opt.method||"GET",headers:{apikey:K,Authorization:"Bearer "+K,"Content-Type":"application/json",Prefer:opt.prefer||"return=minimal",...(opt.headers||{})},body:opt.body})}
 async function load(){q=await db("chain_queue?session_id=eq."+S+"&select=*&order=position.asc,joined_at.asc",{method:"GET"})||[];render()}
 async function join(){await load();if(q.some(x=>+x.player_id===me.id))return;let m=q.reduce((a,x)=>Math.max(a,+x.position||0),0);await db("chain_queue",{method:"POST",body:JSON.stringify({session_id:S,player_id:me.id,player_name:me.name,position:m+1}),prefer:"resolution=merge-duplicates,return=minimal"});await load();msg("Joined")}
 async function leave(){await db("chain_queue?session_id=eq."+S+"&player_id=eq."+me.id,{method:"DELETE"});await load();msg("Left queue")}
