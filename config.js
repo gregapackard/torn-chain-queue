@@ -1,8 +1,7 @@
-// Shared queue configuration. Safe to publish: Supabase anon keys are public client credentials.
-// Fill these after creating the tiny Chain Queue Supabase project.
 window.CHAIN_CONFIG = {
-  supabaseUrl: "",
-  supabaseAnonKey: "",
+  // Public browser credentials. Never put a Supabase secret/service-role key here.
+  supabaseUrl: "https://axpmotlarzmmhjggmgce.supabase.co",
+  supabaseAnonKey: "sb_publishable_hIkbXGYNCkv-Gm4aaDFxcQ_t1pX8Urw",
   sessionId: "wolfborne-main",
   triggerSeconds: 240,
   pollMs: 5000
