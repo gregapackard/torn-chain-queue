@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cloudy's Chain Manager
 // @namespace    https://github.com/gregapackard/torn-chain-queue
-// @version      0.9.17
+// @version      0.9.18
 // @description  Shared Torn faction chain queue with live turn order, energy, chain timer, hit detection, leader controls, and turn alerts.
 // @author       CloudyMuffin440
 // @license      MIT
