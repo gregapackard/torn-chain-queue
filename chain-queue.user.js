@@ -90,7 +90,7 @@ async function signalAttackOutcome(){
  lastUiHitSignal=Date.now();
  let sid="ui:"+me.id+":"+Date.now();
  try{
-   let changed=await rpc("chain_signal_hit",{p_session:S,p_player_id:me.id,p_signal_id:sid});
+   let changed=await rpc("chain_signal_hit_v2",{p_session:S,p_player_id:me.id,p_signal_id:sid,p_ended_at:Math.floor(tornNow()/1000)});
    if(changed){secs=300;lastTimerSync=0;await load();msg(me.name+" hit → timer reset")}
  }catch(e){await reportError("Instant hit signal",e,"chain_signal_hit");msg("Instant hit signal: "+(e?.message||"failed"))}
 }
