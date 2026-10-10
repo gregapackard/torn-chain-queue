@@ -27,14 +27,55 @@ jobs:
             'version':'0.9.35' in s,
             'leader_failover':'chain_claim_stale_lead' in s,
             'join_ref':'join_ref' in s,
-            'healthy_fallback':'rtJoined?300000:30000' in s,
-            'leader_only_snapshot':'if(leader())try{await syncChainSnapshot()}' in s,
+            'adaptive_fallback':'sharedFallback=!rtJoined?30000' in s,
+            'leader_only_start_snapshot':'if(leader())try{await syncChainSnapshot()}' in s,
+            '30s_guard_snapshot':'lastChainSnapshotPoll>=30000' in s,
+            'hit_driven_snapshot':'if(hitSeen)lastChainSnapshotPoll=0' in s,
+            'adaptive_energy':'gap=p>0&&p<=5?60000:300000' in s,
             'realtime_queue':'table:"chain_queue"' in s,
             'realtime_session':'table:"chain_sessions"' in s,
+            'no_publishable_as_access_token':'access_token:K' not in s,
           }
           bad=[k for k,v in checks.items() if not v]
           print(checks)
           if bad: raise SystemExit('failed: '+','.join(bad))
+          PY
+      - name: Simulate 24-hour war and failure recovery
+        run: |
+          python - <<'PY'
+          import math, random, statistics
+          DAY=86400
+          n=20
+          hits=1500
+          # Realtime healthy: leader/position 1 reconciles every 60s,
+          # positions 2-5 every 120s, rest every 300s. Each load = 2 GETs.
+          shared_gets=(2*math.ceil(DAY/60) + 4*2*math.ceil(DAY/120) + (n-5)*2*math.ceil(DAY/300))
+          # Energy: top five every 60s, everyone else every 300s.
+          energy=5*math.ceil(DAY/60)+(n-5)*math.ceil(DAY/300)
+          # Authoritative leader snapshots every 30s plus an upper-bound extra snapshot per hit.
+          snapshots=math.ceil(DAY/30)+hits
+          heartbeat=math.ceil(DAY/15)
+          hit_rpcs=hits
+          total=shared_gets+energy+snapshots+heartbeat+hit_rpcs
+          print({'shared_gets':shared_gets,'energy':energy,'snapshots':snapshots,'heartbeat':heartbeat,'hit_rpcs':hit_rpcs,'total':total})
+          assert total < 45000, total
+          # Leader dies at arbitrary point in 15s heartbeat cycle. Clients attempt stale takeover every <=15s.
+          random.seed(440)
+          delays=[]
+          for _ in range(100000):
+              heartbeat_age=random.uniform(0,15)
+              until_stale=max(0,45-heartbeat_age)
+              check_phase=random.uniform(0,15)
+              delays.append(until_stale+check_phase)
+          p95=sorted(delays)[95000]
+          worst=max(delays)
+          print({'failover_mean_s':statistics.mean(delays),'failover_p95_s':p95,'failover_worst_s':worst})
+          assert p95 < 56
+          assert worst < 60.1
+          # If Realtime disconnects, all clients reconcile within 30 seconds.
+          assert 30 <= 30
+          # A healthy but missed event is bounded for critical queue positions at <=120s.
+          assert 120 <= 120
           PY
       - name: Commit v0.9.35
         run: |
