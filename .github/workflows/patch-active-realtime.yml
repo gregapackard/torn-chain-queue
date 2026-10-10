@@ -1,0 +1,77 @@
+name: Patch Chain Manager active Realtime v0.9.33
+
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-active-realtime.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch userscript
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('greasyfork/chain-manager.user.js')
+          s=p.read_text()
+          original=s
+          s=s.replace('// @version      0.9.32','// @version      0.9.33',1)
+          s=s.replace('const VERSION="0.9.32";','const VERSION="0.9.33";',1)
+          s=s.replace('let S="pending",factionId=0,activeLoop=false;','let S="pending",factionId=0,activeLoop=false,rtSocket=null,rtHeartbeat=null,rtRef=0;',1)
+
+          old='function leader(){return !!me&&+session.leader_id===me.id}\nfunction stopActiveLoop(){activeLoop=false;clearTimeout(window.__cqFast);clearInterval(window.__cqClock);safeText("#st","IDLE");localClock();render();clearTimeout(window.__cqIdle);if(S!=="pending")window.__cqIdle=setTimeout(checkForActiveSession,300000)}\n'
+          new=r'''function leader(){return !!me&&+session.leader_id===me.id}
+function rtStop(){clearTimeout(window.__cqRtReconnect);clearInterval(rtHeartbeat);rtHeartbeat=null;if(rtSocket){try{rtSocket.onclose=null;rtSocket.close()}catch{}}rtSocket=null}
+function rtSend(topic,event,payload){if(rtSocket&&rtSocket.readyState===1)try{rtSocket.send(JSON.stringify({topic,event,payload,ref:String(++rtRef)}))}catch{}}
+function rtApplyQueue(d){let typ=String(d?.type||d?.eventType||"").toUpperCase(),r=d?.record||d?.new||{},o=d?.old_record||d?.old||{},sid=String(r.session_id||o.session_id||"");if(sid!==S)return;let id=+(r.player_id||o.player_id||0);if(!id)return;if(typ==="DELETE")q=q.filter(x=>+x.player_id!==id);else{let i=q.findIndex(x=>+x.player_id===id);if(i>=0)q[i]={...q[i],...r};else q.push(r)}q.sort((a,b)=>(+a.position||999999)-(+b.position||999999)||String(a.joined_at||"").localeCompare(String(b.joined_at||"")));lastSharedLoad=Date.now();diag.queue=true;render()}
+function rtApplySession(d){let r=d?.record||d?.new||{};if(String(r.session_id||"")!==S)return;session={...session,...r};lastSharedLoad=Date.now();localClock();render();if(session.active===false)stopActiveLoop()}
+function startRealtime(){if(rtSocket||!activeLoop||!session.active||S==="pending")return;try{let ws=U.replace(/^https:/,"wss:")+"/realtime/v1/websocket?apikey="+encodeURIComponent(K)+"&vsn=1.0.0",topic="realtime:chain-manager:"+S;rtSocket=new WebSocket(ws);rtSocket.onopen=()=>{rtSend(topic,"phx_join",{config:{broadcast:{self:false},presence:{key:""},postgres_changes:[{event:"*",schema:"public",table:"chain_queue",filter:"session_id=eq."+S},{event:"UPDATE",schema:"public",table:"chain_sessions",filter:"session_id=eq."+S}]},access_token:K});clearInterval(rtHeartbeat);rtHeartbeat=setInterval(()=>rtSend("phoenix","heartbeat",{}),25000)};rtSocket.onmessage=e=>{try{let m=JSON.parse(e.data);if(m?.event!=="postgres_changes")return;let d=m?.payload?.data||m?.payload||{};if(d.table==="chain_queue")rtApplyQueue(d);else if(d.table==="chain_sessions")rtApplySession(d)}catch{}};rtSocket.onerror=()=>{};rtSocket.onclose=()=>{clearInterval(rtHeartbeat);rtHeartbeat=null;rtSocket=null;if(activeLoop&&session.active){clearTimeout(window.__cqRtReconnect);window.__cqRtReconnect=setTimeout(startRealtime,5000)}}}catch{rtSocket=null}}
+function stopActiveLoop(){activeLoop=false;clearTimeout(window.__cqFast);clearInterval(window.__cqClock);rtStop();safeText("#st","IDLE");localClock();render();clearTimeout(window.__cqIdle);if(S!=="pending")window.__cqIdle=setTimeout(checkForActiveSession,300000)}
+'''
+          assert old in s
+          s=s.replace(old,new,1)
+
+          old='async function startActiveLoop(){if(activeLoop||!session.active)return;activeLoop=true;await probeFactionApi();'
+          new='async function startActiveLoop(){if(activeLoop||!session.active)return;activeLoop=true;clearTimeout(window.__cqIdle);startRealtime();await probeFactionApi();'
+          assert old in s
+          s=s.replace(old,new,1)
+
+          old='if(Date.now()-lastSharedLoad>=sharedDelay())try{await load()}'
+          new='if(Date.now()-lastSharedLoad>=60000)try{await load()}'
+          assert old in s
+          s=s.replace(old,new,1)
+
+          old='if(applied)await load();else localClock();return {timestamp:Math.floor(tms/1000),current:ct,max:cm,end,cooldown:cool,applied}'
+          new='session.chain_torn_timestamp=Math.floor(tms/1000);session.chain_count=ct;session.chain_max=cm;session.chain_end_at=end;session.chain_cooldown_at=cool;session.chain_timer_seconds=ct>0&&end>0?Math.max(0,Math.min(600,end-Math.floor(tms/1000))):0;session.chain_timer_synced_at=new Date().toISOString();localClock();render();return {timestamp:Math.floor(tms/1000),current:ct,max:cm,end,cooldown:cool,applied}'
+          assert old in s
+          s=s.replace(old,new,1)
+
+          old='lastEnergyPush=Date.now();diag.energy=true;await load()'
+          new='lastEnergyPush=Date.now();diag.energy=true'
+          assert old in s
+          s=s.replace(old,new,1)
+
+          old='async function control(action,value=null){if(!leader())return false;let r=await rpc("chain_session_control",{p_session:S,p_leader_id:me.id,p_action:action,p_value:value==null?null:String(value)});await load();return r}'
+          new='async function control(action,value=null){if(!leader())return false;return rpc("chain_session_control",{p_session:S,p_leader_id:me.id,p_action:action,p_value:value==null?null:String(value)})'
+          assert old in s
+          s=s.replace(old,new,1)
+
+          if s==original: raise SystemExit('No changes made')
+          assert '0.9.33' in s
+          assert 'startRealtime()' in s
+          assert 'Date.now()-lastSharedLoad>=60000' in s
+          p.write_text(s)
+          PY
+      - name: Commit patched userscript
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add greasyfork/chain-manager.user.js
+          git commit -m "Use Realtime during active chain sessions"
+          git push
