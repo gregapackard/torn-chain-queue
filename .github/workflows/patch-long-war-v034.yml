@@ -1,0 +1,49 @@
+name: Optimize Chain Manager for full-war sessions v0.9.34
+
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-long-war-v034.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch userscript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('greasyfork/chain-manager.user.js')
+          s=p.read_text()
+          s=s.replace('// @version      0.9.33','// @version      0.9.34',1)
+          s=s.replace('const VERSION="0.9.33";','const VERSION="0.9.34";',1)
+          old='if(!lastTornClockSync||Date.now()-lastTornClockSync>=60000)try{await syncTornClock()}'
+          new='if(!lastTornClockSync||Date.now()-lastTornClockSync>=300000)try{await syncTornClock()}'
+          assert old in s
+          s=s.replace(old,new,1)
+          old='if(!lastChainSnapshotPoll||Date.now()-lastChainSnapshotPoll>=10000)try{await syncChainSnapshot()}'
+          new='if(leader()&&(!lastChainSnapshotPoll||Date.now()-lastChainSnapshotPoll>=10000))try{await syncChainSnapshot()}'
+          assert old in s
+          s=s.replace(old,new,1)
+          old='if(changed){optimisticSnapshotTs=+session.chain_torn_timestamp||0;optimisticEndAt=tornNow()+300000;secs=300;await load();localClock();msg(me.name+" hit → awaiting Torn chain snapshot")}'
+          new='if(changed){optimisticSnapshotTs=+session.chain_torn_timestamp||0;optimisticEndAt=tornNow()+300000;secs=300;localClock();render();msg(me.name+" hit → awaiting Torn chain snapshot")}'
+          assert old in s
+          s=s.replace(old,new,1)
+          old='async function recordAttack(id,name,attackId,ended=null){let changed=await rpc("chain_record_attack",{p_session:S,p_player_id:+id,p_player_name:name||"Player",p_attack_id:attackId,p_ended_at:ended?+ended:null});await load();if(changed)msg((name||"Player")+" hit"+(q.some(x=>+x.player_id===+id)?" → bottom":""));return changed}'
+          new='async function recordAttack(id,name,attackId,ended=null){let changed=await rpc("chain_record_attack",{p_session:S,p_player_id:+id,p_player_name:name||"Player",p_attack_id:attackId,p_ended_at:ended?+ended:null});if(changed)msg((name||"Player")+" hit → synced");return changed}'
+          assert old in s
+          s=s.replace(old,new,1)
+          assert 'leader()&&(!lastChainSnapshotPoll' in s and '0.9.34' in s
+          p.write_text(s)
+          PY
+      - name: Commit patched userscript
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add greasyfork/chain-manager.user.js
+          git commit -m "Optimize Chain Manager for full-war sessions"
+          git push
