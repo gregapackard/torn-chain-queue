@@ -1,0 +1,99 @@
+name: Patch Chain Manager v0.9.32
+
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-chain-manager.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch userscript
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('greasyfork/chain-manager.user.js')
+          s = p.read_text()
+          original = s
+
+          s = s.replace('// @version      0.9.31','// @version      0.9.32')
+          s = s.replace('const VERSION="0.9.31";','const VERSION="0.9.32";')
+          s = s.replace('SS="chainQueue.sound";let S="pending",factionId=0;', 'SS="chainQueue.sound",OWNER_ID=4315564;let S="pending",factionId=0,activeLoop=false;')
+          s = s.replace('session={leader_id:null,leader_name:null,trigger_seconds:240,paused:false,', 'session={active:false,leader_id:null,leader_name:null,trigger_seconds:240,paused:false,')
+          s = s.replace('session={session_id:S,leader_id:null,leader_name:null,trigger_seconds:240,paused:false,', 'session={session_id:S,active:false,leader_id:null,leader_name:null,trigger_seconds:240,paused:false,')
+
+          old = '<div class="lead"></div><details class="admin">'
+          new = '<div class="lead"></div><div class="sessionCtl" style="display:none;gap:4px;margin-top:6px"><button id="startsession">▶ START SESSION</button><button id="endsession">■ END SESSION</button></div><details class="admin">'
+          assert old in s
+          s = s.replace(old,new,1)
+
+          old = 'cq("#takelead").onclick=takeLead;cq("#sound").onclick=toggleSound;'
+          new = 'cq("#takelead").onclick=takeLead;cq("#startsession").onclick=()=>setSessionActive(true);cq("#endsession").onclick=()=>setSessionActive(false);cq("#sound").onclick=toggleSound;'
+          assert old in s
+          s = s.replace(old,new,1)
+
+          old = 'function leader(){return !!me&&+session.leader_id===me.id}\n'
+          new = '''function leader(){return !!me&&+session.leader_id===me.id}\nfunction stopActiveLoop(){activeLoop=false;clearTimeout(window.__cqFast);clearInterval(window.__cqClock);safeText("#st","IDLE");localClock();render()}\nasync function startActiveLoop(){if(activeLoop||!session.active)return;activeLoop=true;await probeFactionApi();try{await syncTornClock()}catch(e){msg("Torn clock sync: "+(e?.message||"failed"))}if(q.some(x=>+x.player_id===me?.id))try{await rpc("chain_capability",{p_session:S,p_player_id:me.id,p_can_lead:canLead});await load()}catch(e){await reportError("Capability sync",e,"chain_capability")}try{await syncChainSnapshot()}catch(e){await reportError("Chain snapshot",e,"/faction?selections=chain,timestamp");localClock()}clearTimeout(window.__cqFast);clearInterval(window.__cqClock);await pollFast();window.__cqClock=setInterval(()=>{localClock();render()},250)}\nasync function setSessionActive(on){if(!me||me.id!==OWNER_ID)return msg("Only Cloudy can start/end the shared session");let ok=await rpc("chain_set_active",{p_session:S,p_player_id:me.id,p_active:!!on});if(!ok)return msg("Session change failed");await load();if(on){await startActiveLoop();msg("Chain Manager session STARTED")}else{stopActiveLoop();msg("Chain Manager session ENDED — clients sleeping")}}\nasync function checkForActiveSession(){if(activeLoop||S==="pending")return;try{let r=await db("chain_sessions?session_id=eq."+S+"&select=active",{method:"GET"});if(Array.isArray(r)&&r[0]?.active){session.active=true;await load();await startActiveLoop();msg("Session is active — LIVE")}}catch{}}\n'''
+          assert old in s
+          s = s.replace(old,new,1)
+
+          old = 'q=nq;if(ns[0])session=ns[0];\n lastSharedLoad=Date.now();'
+          new = 'q=nq;if(ns[0])session=ns[0];if(activeLoop&&session.active===false)activeLoop=false;\n lastSharedLoad=Date.now();'
+          assert old in s
+          s = s.replace(old,new,1)
+
+          old = 'async function pollFast(){\n try{'
+          new = 'async function pollFast(){\n if(!activeLoop||!session.active){activeLoop=false;safeText("#st","IDLE");render();return}\n try{'
+          assert old in s
+          s = s.replace(old,new,1)
+
+          old = 'clearTimeout(window.__cqFast);window.__cqFast=setTimeout(pollFast,mineDelay())\n }\n}\nasync function connect()'
+          new = 'clearTimeout(window.__cqFast);if(activeLoop&&session.active)window.__cqFast=setTimeout(pollFast,mineDelay())\n }\n}\nasync function connect()'
+          assert old in s
+          s = s.replace(old,new,1)
+
+          start = s.index('async function connect(){')
+          end = s.index('\nfunction render(){', start)
+          old_connect = s[start:end]
+          new_connect = '''async function connect(){try{cq("#st").textContent="CONNECTING";if(!(await checkVersion()))throw Error("Update required — install v"+versionState.latest);let pk=PDAK!=="###PDA-APIKEY###"?PDAK:"",k=pk||(cq("#ck")?.value||"").trim()||storeGet(KS);diag.key=!!k;if(!k)throw Error("Enter a Limited API key");if(!pk)storeSet(KS,k);let j=await torn("/user/basic"),u=j.profile||j;diag.torn=true;me={id:+(u.id||u.player_id),name:u.name};storeSet("cq_identity",JSON.stringify(me));if(!me.id)throw Error("Could not identify user");await selectFactionSession();await load();if(session.active){await startActiveLoop();msg(q.some(x=>+x.player_id===me.id)?"Connected — still in queue":"Connected — LIVE")}else{stopActiveLoop();msg(me.id===OWNER_ID?"IDLE — press START SESSION when chaining/war starts":"IDLE — waiting for Cloudy to start a session");clearTimeout(window.__cqIdle);window.__cqIdle=setTimeout(checkForActiveSession,300000)}}catch(e){diag.torn=false;safeText("#st","ERROR");msg(e.message)}}'''
+          s = s[:start] + new_connect + s[end:]
+
+          # Opening the bubble while idle performs an immediate one-shot active check.
+          old = 'd.classList.add("open");requestAnimationFrame(()=>clampOpen(d))'
+          new = 'd.classList.add("open");requestAnimationFrame(()=>clampOpen(d));if(!activeLoop)setTimeout(checkForActiveSession,0)'
+          assert old in s
+          s = s.replace(old,new,1)
+
+          # Owner controls + clear inactive presentation.
+          old = 'function render(){if(!$("#cq")){mount();return;}paintDiag();let n=q[0],'
+          new = 'function render(){if(!$("#cq")){mount();return;}paintDiag();let ctl=cq(".sessionCtl");if(ctl)ctl.style.display=me?.id===OWNER_ID?"flex":"none";let sb=cq("#startsession"),eb=cq("#endsession");if(sb)sb.disabled=!!session.active;if(eb)eb.disabled=!session.active;if(!session.active)safeText("#st","IDLE");let n=q[0],'
+          assert old in s
+          s = s.replace(old,new,1)
+
+          # Remove boot-time queue/session reads against the placeholder 'pending' session.
+          start = s.index('(async function boot(){')
+          end = s.index('\n})();\n})();', start)
+          old_boot = s[start:end]
+          new_boot = '''(async function boot(){\n restoreIdentity();\n let saved=storeGet(KS);\n if(saved){cq("#ck").value=saved;connect()}\n else if(me){render();msg("API key needed to connect")}\n})()'''
+          s = s[:start] + new_boot + s[end:]
+
+          if s == original:
+              raise SystemExit('No changes made')
+          assert '0.9.31' not in s
+          assert 'chain_set_active' in s
+          assert 'if(!activeLoop||!session.active)' in s
+          p.write_text(s)
+          PY
+      - name: Commit patched userscript
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add greasyfork/chain-manager.user.js
+          git commit -m "Make Chain Manager dormant outside active sessions"
+          git push
