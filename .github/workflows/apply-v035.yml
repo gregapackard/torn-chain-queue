@@ -1,0 +1,46 @@
+name: Apply Chain Manager v0.9.35
+
+on:
+  push:
+    paths:
+      - 'tools/patch_v035.py'
+      - '.github/workflows/apply-v035.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patch
+        run: python tools/patch_v035.py
+      - name: Syntax check
+        run: node --check greasyfork/chain-manager.user.js
+      - name: Static safety checks
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('greasyfork/chain-manager.user.js').read_text()
+          checks={
+            'version':'0.9.35' in s,
+            'leader_failover':'chain_claim_stale_lead' in s,
+            'join_ref':'join_ref' in s,
+            'healthy_fallback':'rtJoined?300000:30000' in s,
+            'leader_only_snapshot':'if(leader())try{await syncChainSnapshot()}' in s,
+            'realtime_queue':'table:"chain_queue"' in s,
+            'realtime_session':'table:"chain_sessions"' in s,
+          }
+          bad=[k for k,v in checks.items() if not v]
+          print(checks)
+          if bad: raise SystemExit('failed: '+','.join(bad))
+          PY
+      - name: Commit v0.9.35
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add greasyfork/chain-manager.user.js
+          git diff --cached --quiet && exit 0
+          git commit -m "Harden Chain Manager for production-long wars"
+          git push
