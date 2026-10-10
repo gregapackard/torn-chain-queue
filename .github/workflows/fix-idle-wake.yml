@@ -1,0 +1,31 @@
+name: Fix dormant wake check
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-idle-wake.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch v0.9.32 dormant wake loop
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('greasyfork/chain-manager.user.js')
+          s = p.read_text()
+          old = '''async function checkForActiveSession(){if(activeLoop||S==="pending")return;try{let r=await db("chain_sessions?session_id=eq."+S+"&select=active",{method:"GET"});if(Array.isArray(r)&&r[0]?.active){session.active=true;await load();await startActiveLoop();msg("Session is active — LIVE")}}catch{}}'''
+          new = '''async function checkForActiveSession(){clearTimeout(window.__cqIdle);if(activeLoop||S==="pending")return;try{let r=await db("chain_sessions?session_id=eq."+S+"&select=active",{method:"GET"});if(Array.isArray(r)&&r[0]?.active){session.active=true;await load();await startActiveLoop();msg("Session is active — LIVE")}}catch{}finally{if(!activeLoop&&S!=="pending")window.__cqIdle=setTimeout(checkForActiveSession,300000)}}'''
+          if old not in s:
+              raise SystemExit('target function not found')
+          p.write_text(s.replace(old,new,1))
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add greasyfork/chain-manager.user.js
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Keep dormant clients wakeable without polling spam'
+          git push
