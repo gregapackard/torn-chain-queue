@@ -51,3 +51,16 @@ revoke all on function chain_internal.claim_poll_lease(text,bigint,uuid,integer)
 -- IMPORTANT: fencing must also be checked transactionally by the future
 -- authoritative hit/snapshot writer; checking a token only in JavaScript is insufficient.
 -- No SECURITY DEFINER or publicly executable acquisition RPC is introduced here.
+
+-- REST-facing service-role-only bridge. Public schema is exposed, but anonymous
+-- clients cannot execute this function. Edge Function must verify Torn identity.
+create or replace function public.chain_claim_poll_lease(
+ p_session text,p_holder bigint,p_token uuid,p_ttl_seconds integer default 15
+) returns table(acquired boolean,lease_epoch bigint,lease_expires_at timestamptz)
+language sql security invoker set search_path=public,chain_internal,pg_temp as $$
+ select * from chain_internal.claim_poll_lease(p_session,p_holder,p_token,p_ttl_seconds)
+$$;
+revoke all on function public.chain_claim_poll_lease(text,bigint,uuid,integer) from public,anon,authenticated;
+grant usage on schema chain_internal to service_role;
+grant execute on function chain_internal.claim_poll_lease(text,bigint,uuid,integer) to service_role;
+grant execute on function public.chain_claim_poll_lease(text,bigint,uuid,integer) to service_role;
