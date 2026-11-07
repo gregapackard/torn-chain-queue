@@ -58,10 +58,10 @@ function cqLeaseTick(){
  if(old?.id===cqTabId||!old||old.until<now){
    try{localStorage.setItem(cqLeaseKey(),JSON.stringify({id:cqTabId,until:now+9000}));cqTabOwner=cqReadLease()?.id===cqTabId}catch{cqTabOwner=false}
  }else cqTabOwner=false;
- if(cqTabOwner&&!window.__cqFast&&activeLoop)window.__cqFast=setTimeout(pollFast,0);
+ if(cqTabOwner&&activeLoop&&!window.__cqFast)window.__cqFast=setTimeout(pollFast,0);
 }
 function cqStartLease(){if(cqTabLeaseTimer)return;cqLeaseTick();cqTabLeaseTimer=setInterval(cqLeaseTick,2000)}
-function cqStopLease(){clearInterval(cqTabLeaseTimer);cqTabLeaseTimer=null;if(cqOwnPoller())try{localStorage.removeItem(cqLeaseKey())}catch{}cqTabOwner=false}
+function cqStopLease(){clearInterval(cqTabLeaseTimer);cqTabLeaseTimer=null;clearTimeout(window.__cqFast);window.__cqFast=null;if(cqOwnPoller())try{localStorage.removeItem(cqLeaseKey())}catch{}cqTabOwner=false}
 window.addEventListener("pagehide",cqStopLease);
 window.addEventListener("storage",e=>{if(e.key===cqLeaseKey())cqLeaseTick()});
 async function torn(p){if(tornInFlight.has(p))return tornInFlight.get(p);if(tornCooldown(p)>0){let e=Error("Torn API cooling down after rate limit");e.code="5";e.endpoint=p;e.cooldown=true;throw e}const pending=(async()=>{let pk=PDAK!=="###PDA-APIKEY###"?PDAK:"",k=pk||storeGet(KS);diag.key=!!k;if(!k)throw Error("Enter a Limited API key");let j=await request(A+p,{headers:{Authorization:"ApiKey "+k}});if(j==null)throw Error("Empty Torn API response: "+p);if(typeof j==="string")throw Error("Unexpected Torn response: "+j.slice(0,80));if(j?.error){let e=Error(j.error?.error||j.error?.message||"Torn API error");e.code=String(j.error?.code??"");e.endpoint=p;if(e.code==="5"){const prior=tornBackoff.get(p)?.failures||0;const failures=Math.min(prior+1,6);tornBackoff.set(p,{failures,until:Date.now()+Math.min(120000,5000*2**(failures-1))+Math.floor(Math.random()*1000)})}throw e}tornBackoff.delete(p);return j})();tornInFlight.set(p,pending);try{return await pending}finally{tornInFlight.delete(p)}}
@@ -152,6 +152,7 @@ function myPos(){return me?q.findIndex(x=>+x.player_id===me.id)+1:0}
 function mineDelay(){let p=myPos();return leader()||p===1?2000:p>0&&p<=5?2000:p>0&&p<=20?5000:6000}
 function sharedDelay(){let p=myPos();return leader()||p===1?2000:p>0&&p<=5?3000:p>0&&p<=20?5000:6000}
 async function pollFast(){
+ window.__cqFast=null;
  if(!activeLoop||!session.active){activeLoop=false;safeText("#st","IDLE");render();return}
  if(!cqOwnPoller()){safeText("#st","MIRROR");localClock();render();return}
  try{
