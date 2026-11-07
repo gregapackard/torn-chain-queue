@@ -46,24 +46,48 @@ async function request(url,opt={}){
 // Shared Torn API request scheduler: coalesce identical in-flight reads and back off on rate limits.
 const tornInFlight=new Map(),tornBackoff=new Map();
 function tornCooldown(p){return Math.max(tornBackoff.get("*")?.until||0,tornBackoff.get(p)?.until||0)-Date.now()}
-// Cross-tab single poller (per browser profile and player). All tabs keep Supabase Realtime.
+// Prefer the browser's atomic Web Locks election. Older browsers/PDA fall back to a lease.
 const cqTabId=String(Date.now())+"-"+Math.random().toString(36).slice(2);
-let cqTabOwner=false,cqTabLeaseTimer=null;
+let cqTabOwner=false,cqTabLeaseTimer=null,cqLockPending=false,cqLockRelease=null,cqLockGeneration=0;
+const cqWebLocks=!!(navigator.locks&&typeof navigator.locks.request==="function");
 function cqLeaseKey(){return "cq:poller:"+String(me?.id||"pending")+":"+String(S)}
 function cqReadLease(){try{return JSON.parse(localStorage.getItem(cqLeaseKey())||"null")}catch{return null}}
-function cqOwnPoller(){return cqTabOwner&&cqReadLease()?.id===cqTabId}
+function cqOwnPoller(){return cqTabOwner&&(cqWebLocks||cqReadLease()?.id===cqTabId)}
+function cqActivatePoller(){if(cqOwnPoller()&&activeLoop&&!window.__cqFast)window.__cqFast=setTimeout(pollFast,0)}
+function cqLosePoller(){cqTabOwner=false;clearTimeout(window.__cqFast);window.__cqFast=null}
 function cqLeaseTick(){
- if(!me||S==="pending"||!session.active){cqTabOwner=false;return}
+ if(!activeLoop||!me||S==="pending"||!session.active)return;
+ if(cqWebLocks){
+   if(cqTabOwner||cqLockPending)return;
+   cqLockPending=true;
+   const generation=cqLockGeneration;
+   navigator.locks.request(cqLeaseKey(),{mode:"exclusive",ifAvailable:true},async lock=>{
+     cqLockPending=false;
+     if(!lock||generation!==cqLockGeneration||!activeLoop||!session.active)return;
+     cqTabOwner=true;cqActivatePoller();
+     try{await new Promise(resolve=>{cqLockRelease=resolve})}
+     finally{cqLockRelease=null;cqLosePoller()}
+   }).catch(e=>{cqLockPending=false;diag.last="Tab lock: "+(e?.message||"failed");paintDiag()});
+   return;
+ }
  const now=Date.now(),old=cqReadLease();
  if(old?.id===cqTabId||!old||old.until<now){
    try{localStorage.setItem(cqLeaseKey(),JSON.stringify({id:cqTabId,until:now+9000}));cqTabOwner=cqReadLease()?.id===cqTabId}catch{cqTabOwner=false}
  }else cqTabOwner=false;
- if(cqTabOwner&&activeLoop&&!window.__cqFast)window.__cqFast=setTimeout(pollFast,0);
+ if(!cqTabOwner){clearTimeout(window.__cqFast);window.__cqFast=null}
+ cqActivatePoller();
 }
 function cqStartLease(){if(cqTabLeaseTimer)return;cqLeaseTick();cqTabLeaseTimer=setInterval(cqLeaseTick,2000)}
-function cqStopLease(){clearInterval(cqTabLeaseTimer);cqTabLeaseTimer=null;clearTimeout(window.__cqFast);window.__cqFast=null;if(cqOwnPoller())try{localStorage.removeItem(cqLeaseKey())}catch{}cqTabOwner=false}
+function cqStopLease(){
+ clearInterval(cqTabLeaseTimer);cqTabLeaseTimer=null;
+ cqLockGeneration++;
+ if(cqLockRelease)cqLockRelease();
+ if(!cqWebLocks&&cqOwnPoller())try{localStorage.removeItem(cqLeaseKey())}catch{}
+ cqLosePoller();
+}
 window.addEventListener("pagehide",cqStopLease);
-window.addEventListener("storage",e=>{if(e.key===cqLeaseKey())cqLeaseTick()});
+window.addEventListener("pageshow",()=>{if(activeLoop&&session.active)cqStartLease()});
+window.addEventListener("storage",e=>{if(!cqWebLocks&&e.key===cqLeaseKey())cqLeaseTick()});
 async function torn(p){if(tornInFlight.has(p))return tornInFlight.get(p);if(tornCooldown(p)>0){let e=Error("Torn API cooling down after rate limit");e.code="5";e.endpoint=p;e.cooldown=true;throw e}const pending=(async()=>{let pk=PDAK!=="###PDA-APIKEY###"?PDAK:"",k=pk||storeGet(KS);diag.key=!!k;if(!k)throw Error("Enter a Limited API key");let j=await request(A+p,{headers:{Authorization:"ApiKey "+k}});if(j==null)throw Error("Empty Torn API response: "+p);if(typeof j==="string")throw Error("Unexpected Torn response: "+j.slice(0,80));if(j?.error){let e=Error(j.error?.error||j.error?.message||"Torn API error");e.code=String(j.error?.code??"");e.endpoint=p;if(e.code==="5"){const prior=tornBackoff.get("*")?.failures||0;const failures=Math.min(prior+1,6);tornBackoff.set("*",{failures,until:Date.now()+Math.min(120000,5000*2**(failures-1))+Math.floor(Math.random()*1000)})}throw e}tornBackoff.delete("*");tornBackoff.delete(p);return j})();tornInFlight.set(p,pending);try{return await pending}finally{tornInFlight.delete(p)}}
 async function db(path,opt={}){return request(U+"/rest/v1/"+path,{method:opt.method||"GET",headers:{apikey:K,Authorization:"Bearer "+K,"Content-Type":"application/json",Prefer:opt.prefer||"return=minimal",...(opt.headers||{})},body:opt.body})}async function rpc(fn,p){return db("rpc/"+fn,{method:"POST",body:JSON.stringify(p),prefer:"return=representation"})}
 function errCode(e){let m=String(e?.message||"");return String(e?.code||(/incorrect id[- ]entity relation/i.test(m)?"7":/too many requests/i.test(m)?"429":""))}
