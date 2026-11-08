@@ -32,7 +32,7 @@ function cqAlertTick(){
  if(!activeLoop||!session.active||!me||!soundOn()||session.paused){cqAlertTurn=null;return}
  const n=q[0],mine=+n?.player_id===me.id,trigger=+session.trigger_seconds||240;
  if(!mine||count<=0||!Number.isFinite(secs)||secs<=0){cqAlertTurn=null;return}
- const identity=String(S)+":"+String(n.player_id)+":"+String(n.joined_at||"")+":"+String(session.last_attack_id||"");
+ const identity=String(S)+":"+String(n.player_id)+":"+String(n.joined_at||"");
  if(cqAlertTurn!==identity){cqAlertTurn=identity;cqAlertUrgentAt=0;tone("turn")}
  if(secs<=trigger&&Date.now()-cqAlertUrgentAt>=30000){
    // Cross-tab best-effort sound deduplication. Never suppress the local alert if storage is unavailable.
