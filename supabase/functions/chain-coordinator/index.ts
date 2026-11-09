@@ -99,6 +99,24 @@ Deno.serve(async req=>{
      },url,serviceKey);
      return json({recorded:result===true});
    }
+   if(body.action==="apply_snapshot"){
+     const claims=await check(String(body.token||""),secret);
+     if(!claims||!positive(claims.sub))return json({error:"Invalid or expired credential"},401);
+     const leaseToken=String(body.lease_token||"");
+     const epoch=Number(body.lease_epoch);
+     const fields=["torn_timestamp","current","max","end","cooldown"] as const;
+     if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(leaseToken)
+       ||!Number.isSafeInteger(epoch)||epoch<1
+       ||fields.some(k=>!Number.isSafeInteger(body[k])||body[k]<0)
+       ||body.torn_timestamp<=0||body.current>1000000||body.max>1000000)
+       return json({error:"Invalid snapshot or lease"},400);
+     const applied=await dbRpc("chain_apply_snapshot_fenced",{
+       p_session:claims.session,p_holder:claims.sub,p_token:leaseToken,p_epoch:epoch,
+       p_torn_timestamp:body.torn_timestamp,p_current:body.current,p_max:body.max,
+       p_end:body.end,p_cooldown:body.cooldown
+     },url,serviceKey);
+     return json({applied:applied===true});
+   }
    if(actions.has(body.action)){
      const claims=await check(String(body.token||""),secret);
      if(!claims||!positive(claims.sub)||claims.session!=="faction:"+claims.faction)return json({error:"Invalid or expired identity credential"},401);
