@@ -37,7 +37,7 @@ async function dbRows(table:string,session:string,url:string,key:string,select:s
 }
 const positive=(v:unknown)=>Number.isSafeInteger(Number(v))&&Number(v)>0;
 const safeName=(v:unknown)=>typeof v==="string"&&v.length>=1&&v.length<=40;
-const actions=new Set(["join","leave","energy","capability","pass_lead","remove","skip","session_control","signal_hit"]);
+const actions=new Set(["join","leave","energy","capability","pass_lead","remove","skip","session_control","signal_hit","take_lead","claim_stale_lead","set_active"]);
 Deno.serve(async req=>{
  if(req.method==="OPTIONS")return new Response(null,{headers:cors});
  if(req.method!=="POST")return json({error:"Method not allowed"},405);
@@ -116,6 +116,11 @@ Deno.serve(async req=>{
        case "join":
          if(!safeName(body.player_name))return json({error:"Invalid name"},400);
          fn="chain_join_v2";args={...args,p_player_id:ownId,p_player_name:body.player_name,p_can_lead:body.can_lead===true};break;
+       case "set_active":
+         if(Number(Deno.env.get("CHAIN_OWNER_TORN_ID"))!==ownId||typeof body.active!=="boolean")return json({error:"Owner authorization required"},403);
+         fn="chain_set_active";args={...args,p_player_id:ownId,p_active:body.active};break;
+       case "take_lead":fn="chain_take_lead";args={...args,p_player_id:ownId};break;
+       case "claim_stale_lead":fn="chain_claim_stale_lead";args={...args,p_player_id:ownId};break;
        case "leave":fn="chain_leave";args={...args,p_player_id:ownId};break;
        case "energy":
          if(!Number.isInteger(body.current)||!Number.isInteger(body.max)||body.current<0||body.max<0||body.current>1000||body.max>1000)return json({error:"Invalid energy"},400);
