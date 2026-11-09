@@ -120,23 +120,28 @@ function localClock(){let snap=+session.chain_torn_timestamp||0;if(optimisticEnd
 async function syncChainSnapshot(){let sent=Date.now(),j=await torn("/faction?selections=chain,timestamp"),recv=Date.now(),c=j.chain||{},ts=+(j.timestamp??0),ct=+(c.current??0),cm=+(c.max??c.maximum??0),end=+(c.end??0),cool=+(c.cooldown??0);if(!Number.isFinite(ts)||ts<=0)throw Error("Invalid Torn chain timestamp");if(!Number.isFinite(ct)||ct<0||!Number.isFinite(cm)||cm<0||!Number.isFinite(end)||end<0||!Number.isFinite(cool)||cool<0)throw Error("Invalid Torn chain snapshot");let tms=ts<1e12?ts*1000:ts;tornClockOffset=tms-((sent+recv)/2);lastTornClockSync=recv;lastChainSnapshotPoll=recv;let applied=await rpc("chain_apply_snapshot",{p_session:S,p_torn_timestamp:Math.floor(tms/1000),p_current:ct,p_max:cm,p_end:end,p_cooldown:cool});session.chain_torn_timestamp=Math.floor(tms/1000);session.chain_count=ct;session.chain_max=cm;session.chain_end_at=end;session.chain_cooldown_at=cool;session.chain_timer_seconds=ct>0&&end>0?Math.max(0,Math.min(600,end-Math.floor(tms/1000))):0;session.chain_timer_synced_at=new Date().toISOString();localClock();render();return {timestamp:Math.floor(tms/1000),current:ct,max:cm,end,cooldown:cool,applied}}
 async function load(){
  const getRows=async path=>{
-   let r=await db(path,{method:"GET"});
-   if(r===undefined){
-     await new Promise(ok=>setTimeout(ok,250));
-     r=await db(path,{method:"GET"})
-   }
-   return r
+  let r=await db(path,{method:"GET"});
+  if(r===undefined){
+   await new Promise(ok=>setTimeout(ok,250));
+   r=await db(path,{method:"GET"});
+  }
+  return r;
  };
- let nq=await getRows("chain_queue?session_id=eq."+S+"&select=*&order=position.asc,joined_at.asc");
- if(!Array.isArray(nq)){
-   lastSharedLoad=Date.now();diag.queue=true;localClock();render();return false
+ try{
+  const nq=await getRows("chain_queue?session_id=eq."+encodeURIComponent(S)+"&select=*&order=position.asc,joined_at.asc");
+  if(!Array.isArray(nq))throw Error("Invalid queue response");
+  const ns=await getRows("chain_sessions?session_id=eq."+encodeURIComponent(S)+"&select=*");
+  if(!Array.isArray(ns)||ns.length!==1)throw Error("Invalid or missing session response");
+  // Commit both snapshots together; never overwrite confirmed state on partial failure.
+  q=nq;session=ns[0];
+  lastSharedLoad=Date.now();diag.queue=true;
+  if(activeLoop&&session.active===false){stopActiveLoop();return true}
+  localClock();render();return true;
+ }catch(e){
+  diag.queue=false;diag.last="Queue sync: "+(e?.message||"failed");
+  msg("Queue sync failed — retaining last confirmed data");
+  localClock();render();return false;
  }
- let ns=await getRows("chain_sessions?session_id=eq."+S+"&select=*");
- if(!Array.isArray(ns)){
-   lastSharedLoad=Date.now();diag.queue=true;localClock();render();return false
- }
- q=nq;if(ns[0])session=ns[0];if(activeLoop&&session.active===false)activeLoop=false;
- lastSharedLoad=Date.now();diag.queue=true;localClock();render();return true
 }
 async function checkVersion(){try{let r=await db("chain_client_config?config_id=eq.main&select=latest_version,minimum_version",{method:"GET"});if(Array.isArray(r)&&r[0]){versionState.latest=String(r[0].latest_version||VERSION);versionState.minimum=String(r[0].minimum_version||VERSION);versionState.blocked=vercmp(VERSION,versionState.minimum)<0;versionState.update=vercmp(VERSION,versionState.latest)<0;versionState.checked=true}else versionState.checked=false}catch(e){versionState.checked=false;versionState.blocked=false}render();return !versionState.blocked}
 function versionGuard(){if(!versionState.blocked)return true;msg("UPDATE REQUIRED — v"+VERSION+" is below minimum v"+versionState.minimum);alert("Cloudy\'s Chain Manager v"+VERSION+" is no longer supported. Update to v"+versionState.latest+" before using the queue.");return false}
