@@ -15,7 +15,7 @@ async function check(token:string,secret:string){
  const key=await crypto.subtle.importKey("raw",enc.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["verify"]);
  if(!await crypto.subtle.verify("HMAC",key,unb64(signature),enc.encode(body)))return null;
  const data=JSON.parse(new TextDecoder().decode(unb64(body)));
- if(data.aud!=="chain-poller"||!Number.isInteger(data.exp)||data.exp<=Math.floor(Date.now()/1000))return null;
+ if(data.aud!=="chain-poller"||!Number.isSafeInteger(data.sub)||data.sub<=0||!Number.isSafeInteger(data.faction)||data.faction<=0||data.session!=="faction:"+data.faction||!Number.isInteger(data.exp)||data.exp<=Math.floor(Date.now()/1000)||!Number.isInteger(data.iat)||data.iat>Math.floor(Date.now()/1000)+30)return null;
  return data;
 }
 async function torn(path:string,key:string){
@@ -60,7 +60,7 @@ Deno.serve(async req=>{
      const lookup=await fetch(url+"/rest/v1/chain_sessions?session_id=eq."+encodeURIComponent(session)+"&select=session_id,active",{headers:{apikey:serviceKey,Authorization:"Bearer "+serviceKey},signal:AbortSignal.timeout(8000)});
      if(!lookup.ok)throw new Error("Session lookup unavailable");
      const sessions=await lookup.json();
-     if(!sessions.length)return json({error:"Faction not enrolled"},403);
+     if(!sessions.length)return json({error:"Faction not enrolled"},403);\n     const allowed=await fetch(url+"/rest/v1/chain_allowed_factions?faction_id=eq."+factionId+"&enabled=eq.true&select=faction_id,expires_at",{headers:{apikey:serviceKey,Authorization:"Bearer "+serviceKey},signal:AbortSignal.timeout(8000)});\n     if(!allowed.ok)throw new Error("Faction authorization unavailable");\n     const allowedRows=await allowed.json();\n     if(!allowedRows.some((row:{expires_at:string|null})=>row.expires_at===null||Date.parse(row.expires_at)>Date.now()))return json({error:"Faction license inactive"},403);
      const now=Math.floor(Date.now()/1000);
      const claims={aud:"chain-poller",sub:playerId,faction:factionId,session,iat:now,exp:now+300};
      const payload=b64(enc.encode(JSON.stringify(claims)));
