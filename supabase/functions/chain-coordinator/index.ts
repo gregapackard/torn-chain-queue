@@ -67,6 +67,30 @@ Deno.serve(async req=>{
      const result=await dbRpc("chain_claim_poll_lease",{p_session:claims.session,p_holder:claims.sub,p_token:token,p_ttl_seconds:15},url,serviceKey);
      return json({lease:result});
    }
+   if(body.action==="record_attack"){
+     const claims=await check(String(body.token||""),secret);
+     if(!claims)return json({error:"Invalid or expired coordinator credential"},401);
+     const leaseToken=String(body.lease_token||"");
+     const epoch=Number(body.lease_epoch);
+     const playerId=Number(body.player_id);
+     const attackId=String(body.attack_id||"");
+     const ended=body.ended_at==null?null:Number(body.ended_at);
+     const name=String(body.player_name||"Player");
+     if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(leaseToken)
+       ||!Number.isSafeInteger(epoch)||epoch<1
+       ||!Number.isSafeInteger(playerId)||playerId<=0
+       ||!/^\\d{1,128}$/.test(attackId)
+       ||name.length<1||name.length>40
+       ||(ended!==null&&(!Number.isSafeInteger(ended)||ended<=0)))
+       return json({error:"Invalid attack or lease parameters"},400);
+     // DB must atomically check lease holder, token, epoch and expiry.
+     // Never use the legacy unfenced RPC from this endpoint.
+     const result=await dbRpc("chain_record_attack_fenced",{
+       p_session:claims.session,p_holder:claims.sub,p_token:leaseToken,p_epoch:epoch,
+       p_player_id:playerId,p_player_name:name,p_attack_id:attackId,p_ended_at:ended
+     },url,serviceKey);
+     return json({recorded:result===true});
+   }
    return json({error:"Unknown action"},400);
  }catch(e){return json({error:e instanceof Error?e.message:"Request failed"},502)}
 });
