@@ -30,6 +30,14 @@ async function dbRpc(fn:string,args:unknown,url:string,serviceKey:string){
  if(!response.ok)throw new Error("Coordinator lease service unavailable");
  return response.json();
 }
+async function dbRows(table:string,session:string,url:string,key:string,select:string){
+ const response=await fetch(url+"/rest/v1/"+table+"?session_id=eq."+encodeURIComponent(session)+"&select="+encodeURIComponent(select),{headers:{apikey:key,Authorization:"Bearer "+key},signal:AbortSignal.timeout(8000)});
+ if(!response.ok)throw Error("Authorization state unavailable");
+ return await response.json();
+}
+const positive=(v:unknown)=>Number.isSafeInteger(Number(v))&&Number(v)>0;
+const safeName=(v:unknown)=>typeof v==="string"&&v.length>=1&&v.length<=40;
+const actions=new Set(["join","leave","energy","capability","pass_lead","remove","skip","session_control","signal_hit"]);
 Deno.serve(async req=>{
  if(req.method==="OPTIONS")return new Response(null,{headers:cors});
  if(req.method!=="POST")return json({error:"Method not allowed"},405);
@@ -79,7 +87,7 @@ Deno.serve(async req=>{
      if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(leaseToken)
        ||!Number.isSafeInteger(epoch)||epoch<1
        ||!Number.isSafeInteger(playerId)||playerId<=0
-       ||!/^\\d{1,128}$/.test(attackId)
+       ||!/^[0-9]{1,128}$/.test(attackId)
        ||name.length<1||name.length>40
        ||(ended!==null&&(!Number.isSafeInteger(ended)||ended<=0)))
        return json({error:"Invalid attack or lease parameters"},400);
@@ -90,6 +98,43 @@ Deno.serve(async req=>{
        p_player_id:playerId,p_player_name:name,p_attack_id:attackId,p_ended_at:ended
      },url,serviceKey);
      return json({recorded:result===true});
+   }
+   if(actions.has(body.action)){
+     const claims=await check(String(body.token||""),secret);
+     if(!claims||!positive(claims.sub)||claims.session!=="faction:"+claims.faction)return json({error:"Invalid or expired identity credential"},401);
+     const ownId=Number(claims.sub);
+     const sessionRows=await dbRows("chain_sessions",claims.session,url,serviceKey,"leader_id,active");
+     if(sessionRows.length!==1)return json({error:"Session unavailable"},403);
+     const leader=Number(sessionRows[0].leader_id)===ownId;
+     const action=String(body.action);
+     const target=Number(body.target_id);
+     const leaderAction=["pass_lead","remove","skip","session_control"].includes(action);
+     if(leaderAction&&!leader)return json({error:"Only the current leader may perform this action"},403);
+     if(["pass_lead","remove","skip"].includes(action)&&!positive(target))return json({error:"Invalid target"},400);
+     let fn="",args:Record<string,unknown>={p_session:claims.session};
+     switch(action){
+       case "join":
+         if(!safeName(body.player_name))return json({error:"Invalid name"},400);
+         fn="chain_join_v2";args={...args,p_player_id:ownId,p_player_name:body.player_name,p_can_lead:body.can_lead===true};break;
+       case "leave":fn="chain_leave";args={...args,p_player_id:ownId};break;
+       case "energy":
+         if(!Number.isInteger(body.current)||!Number.isInteger(body.max)||body.current<0||body.max<0||body.current>1000||body.max>1000)return json({error:"Invalid energy"},400);
+         fn="chain_energy";args={...args,p_player_id:ownId,p_current:body.current,p_max:body.max};break;
+       case "capability":fn="chain_capability";args={...args,p_player_id:ownId,p_can_lead:body.can_lead===true};break;
+       case "pass_lead":fn="chain_pass_lead";args={...args,p_current_leader:ownId,p_new_leader:target};break;
+       case "remove":case "skip":
+         fn=action==="remove"?"chain_remove":"chain_skip";args={...args,p_leader_id:ownId,p_player_id:target};break;
+       case "session_control":
+         if(!["tempo","manual_hit","toggle_pause","heartbeat"].includes(body.control)||typeof body.value!=="string"&&body.value!=null)return json({error:"Unsupported control"},400);
+         fn="chain_session_control";args={...args,p_leader_id:ownId,p_action:body.control,p_value:body.value??null};break;
+       case "signal_hit":
+         if(typeof body.signal_id!=="string"||body.signal_id.length<1||body.signal_id.length>128)return json({error:"Invalid signal"},400);
+         if(body.ended_at!=null&&(!positive(body.ended_at)||!Number.isSafeInteger(Number(body.ended_at))))return json({error:"Invalid end time"},400);
+         fn="chain_signal_hit_v2";args={...args,p_player_id:ownId,p_signal_id:body.signal_id,p_ended_at:body.ended_at??null};break;
+     }
+     // Caller cannot choose the RPC or impersonate a different player ID.
+     const result=await dbRpc(fn,args,url,serviceKey);
+     return json({result});
    }
    return json({error:"Unknown action"},400);
  }catch(e){return json({error:e instanceof Error?e.message:"Request failed"},502)}
