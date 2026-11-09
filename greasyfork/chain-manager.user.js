@@ -188,8 +188,59 @@ function good(a){let id=+(a.attacker?.id||a.attacker_id||0),r=a.respect_gain??a.
 async function syncTimer(){return syncChainSnapshot()}
 async function pushEnergy(){let p=myPos(),gap=p>0&&p<=5?60000:300000;if(!me||!q.some(x=>+x.player_id===me.id)||Date.now()-lastEnergyPush<gap)return;try{let j=await torn("/user/bars"),b=j.bars||j,e=b.energy||j.energy||j;if(e&&e.current!=null){await rpc("chain_energy",{p_session:S,p_player_id:me.id,p_current:+e.current,p_max:+(e.maximum??e.max??e.current)});lastEnergyPush=Date.now();diag.energy=true}else msg("Energy unavailable from Torn API") }catch(err){diag.energy=false;msg("Energy sync: "+(err?.message||"failed"))}}
 function mine(a){return +(a.attacker?.id||a.attacker_id||0)===me?.id}
-async function pollMine(){if(!me||!q.some(x=>+x.player_id===me.id)||Date.now()-lastMinePoll<(session.leader_id&&Date.now()-Date.parse(session.leader_heartbeat_at||0)<30000?15000:6000))return;lastMinePoll=Date.now();let z=rows(await torn("/user/attacks?limit=10&sort=DESC")).filter(a=>good(a)&&mine(a)).sort((a,b)=>+(b.ended||b.timestamp||0)-+(a.ended||a.timestamp||0)),aid=a=>String(a.id||a.attack_id||a.code||a.ended);if(!z.length)return;if(myAttackCursor==null){myAttackCursor=aid(z[0]);return}let ix=z.findIndex(a=>aid(a)===String(myAttackCursor));if(ix>0){for(let x of z.slice(0,ix).reverse())await bottom(me.id,me.name,aid(x),+(x.ended||x.timestamp||0)||null);myAttackCursor=aid(z[0]);lastEnergyPush=0;await pushEnergy()}else if(ix<0){cqAttackGap=true;msg("PERSONAL ATTACK GAP — cursor missing; retaining cursor for recovery");diag.torn=false;paintDiag()}}
-async function pollLeader(){if(!leader()||Date.now()-lastLeaderPoll<4000)return;lastLeaderPoll=Date.now();let z=rows(await torn("/faction/attacks?limit=100&sort=DESC")).filter(good).sort((a,b)=>+(b.ended||b.timestamp||0)-+(a.ended||a.timestamp||0)),aid=a=>String(a.id||a.attack_id||a.code||a.ended),cursor=session.last_attack_id,hitSeen=false;if(z.length){if(!cursor){await control("cursor",aid(z[0]))}else{let ix=z.findIndex(a=>aid(a)===String(cursor));if(ix>0){for(let x of z.slice(0,ix).reverse()){hitSeen=true;let pid=+(x.attacker?.id||x.attacker_id);await bottom(pid,x.attacker?.name||x.attacker_name,aid(x),+(x.ended||x.timestamp||0)||null)}}else if(ix<0){cqAttackGap=true;msg("FACTION ATTACK GAP — cursor missing; retaining cursor for recovery");diag.torn=false;paintDiag()}}}if(hitSeen)lastChainSnapshotPoll=0;if(Date.now()-lastHeartbeat>=15000){await control("heartbeat");lastHeartbeat=Date.now()}}
+function cqAttackId(a){return String(a.id||a.attack_id||a.code||a.ended)}
+function cqAttackTime(a){return +(a.ended||a.timestamp||0)}
+async function cqAttackBackfill(scope,cursor,limit){
+ const seen=new Map();let before=null,found=false,first=null;
+ for(let page=0;page<12;page++){
+  const path="/"+scope+"/attacks?limit="+limit+"&sort=DESC"+(before===null?"":"&to="+before);
+  const raw=rows(await torn(path));
+  if(!raw.length)break;
+  if(first===null)first=cqAttackId(raw[0]);
+  for(const x of raw){if(cqAttackId(x)===String(cursor)){found=true;break}seen.set(cqAttackId(x),x)}
+  if(found||raw.length<limit)break;
+  const times=raw.map(cqAttackTime).filter(t=>Number.isFinite(t)&&t>0);
+  if(!times.length)break;
+  const oldest=Math.min(...times);
+  if(before!==null&&oldest>=before)break;
+  before=oldest;
+ }
+ if(!found)return {found:false,first,records:[]};
+ const records=[...seen.values()].filter(good).sort((x,y)=>cqAttackTime(x)-cqAttackTime(y)||Number(cqAttackId(x))-Number(cqAttackId(y)));
+ return {found:true,first,records};
+}
+async function pollMine(){
+ if(!me||!q.some(x=>+x.player_id===me.id)||Date.now()-lastMinePoll<(session.leader_id&&Date.now()-Date.parse(session.leader_heartbeat_at||0)<30000?15000:6000))return;
+ lastMinePoll=Date.now();
+ const initial=rows(await torn("/user/attacks?limit=10&sort=DESC"));
+ if(!initial.length)return;
+ if(myAttackCursor==null){myAttackCursor=cqAttackId(initial[0]);return}
+ const result=await cqAttackBackfill("user",myAttackCursor,100);
+ if(!result.found){cqAttackGap=true;msg("PERSONAL ATTACK GAP — history incomplete; cursor preserved");diag.torn=false;paintDiag();return}
+ const hits=result.records.filter(mine);
+ for(const x of hits){if(!cqOwnPoller()||!activeLoop)return;await bottom(me.id,me.name,cqAttackId(x),cqAttackTime(x)||null)}
+ myAttackCursor=result.first;
+ if(hits.length){lastEnergyPush=0;await pushEnergy()}
+}
+async function pollLeader(){
+ if(!leader()||Date.now()-lastLeaderPoll<4000)return;
+ lastLeaderPoll=Date.now();
+ const initial=rows(await torn("/faction/attacks?limit=100&sort=DESC"));
+ if(!initial.length)return;
+ const cursor=session.last_attack_id;
+ if(!cursor){await control("cursor",cqAttackId(initial[0]))}
+ else{
+  const result=await cqAttackBackfill("faction",cursor,100);
+  if(!result.found){cqAttackGap=true;msg("FACTION ATTACK GAP — history incomplete; cursor preserved");diag.torn=false;paintDiag();return}
+  for(const x of result.records){
+   if(!cqOwnPoller()||!activeLoop||!leader())return;
+   const pid=+(x.attacker?.id||x.attacker_id);
+   await bottom(pid,x.attacker?.name||x.attacker_name,cqAttackId(x),cqAttackTime(x)||null)
+  }
+  if(result.records.length)lastChainSnapshotPoll=0;
+ }
+ if(Date.now()-lastHeartbeat>=15000){await control("heartbeat");lastHeartbeat=Date.now()}
+}
 async function maybeFailover(){if(leader()||!me||Date.now()-lastFailoverCheck<15000)return;let mine=q.find(x=>+x.player_id===me.id);if(!mine?.can_lead)return;lastFailoverCheck=Date.now();let t=Date.parse(session.leader_heartbeat_at||session.updated_at||0);if(session.leader_id&&Number.isFinite(t)&&Date.now()-t<45000)return;try{let won=await rpc("chain_claim_stale_lead",{p_session:S,p_player_id:me.id});if(won){await load();if(leader()){lastChainSnapshotPoll=0;await syncChainSnapshot();msg("Leader failover — you are Chain Lead")}}}catch(e){await reportError("Leader failover",e,"chain_claim_stale_lead")}}
 function myPos(){return me?q.findIndex(x=>+x.player_id===me.id)+1:0}
 function mineDelay(){let p=myPos();return leader()||p===1?2000:p>0&&p<=5?2000:p>0&&p<=20?5000:6000}
