@@ -17,7 +17,7 @@
 // @supportURL   https://github.com/gregapackard/torn-chain-queue/issues
 // ==/UserScript==
 (()=>{"use strict";
-const PDAK="###PDA-APIKEY###",U="https://axpmotlarzmmhjggmgce.supabase.co",K="sb_publishable_hIkbXGYNCkv-Gm4aaDFxcQ_t1pX8Urw",A="https://api.torn.com/v2",KS="chainQueue.tornApiKey",PS="chainQueue.pos",SS="chainQueue.sound",OWNER_ID=4315564;let S="pending",factionId=0,activeLoop=false,rtSocket=null,rtHeartbeat=null,rtRef=0,rtJoined=false,lastFailoverCheck=0,rtReconnectAttempt=0;
+const PDAK="###PDA-APIKEY###",U="https://axpmotlarzmmhjggmgce.supabase.co",K="sb_publishable_hIkbXGYNCkv-Gm4aaDFxcQ_t1pX8Urw",A="https://api.torn.com/v2",KS="chainQueue.tornApiKey",PS="chainQueue.pos",SS="chainQueue.sound",OWNER_ID=4315564;let S="pending",factionId=0,activeLoop=false,rtSocket=null,rtHeartbeat=null,rtRef=0,rtJoined=false,lastFailoverCheck=0,rtReconnectAttempt=0,rtJoinRef=null,rtJoinTopic=null,rtLoadSerial=0,rtStateRevision=0;
 const VERSION="0.9.35";let versionState={latest:VERSION,minimum:VERSION,blocked:false,update:false,checked:false};const vercmp=(a,b)=>{let A=String(a).split(".").map(Number),B=String(b).split(".").map(Number);for(let i=0;i<Math.max(A.length,B.length);i++){let d=(A[i]||0)-(B[i]||0);if(d)return d>0?1:-1}return 0};let me=null,q=[],secs=null,count=0,apiFails=0,myAttackCursor=null,lastSharedLoad=0,lastTimerSync=0,lastEnergyPush=0,lastNextId=null,lastQueueSig=null,audioCtx=null,pdaHttpChain=Promise.resolve(),tornClockOffset=0,lastTornClockSync=0,lastChainSnapshotPoll=0,lastMinePoll=0,lastLeaderPoll=0,lastHeartbeat=0,optimisticEndAt=0,optimisticSnapshotTs=0,canLead=true,errorSent=new Map(),diag={queue:false,id:false,key:false,torn:false,energy:false,last:""},session={active:false,leader_id:null,leader_name:null,trigger_seconds:240,paused:false,manual_hit_player_id:null,last_attack_id:null,chain_timer_seconds:null,chain_timer_synced_at:null,chain_count:0,chain_end_at:null,chain_max:0,chain_torn_timestamp:null,chain_cooldown_at:null};
 const $=x=>document.querySelector(x),cq=x=>document.querySelector("#cq "+x),storeGet=(k,d="")=>{try{let v=GM_getValue(k);if(v!==undefined&&v!==null&&v!=="")return v}catch{}try{return localStorage.getItem(k)??d}catch{return d}},storeSet=(k,v)=>{try{GM_setValue(k,v)}catch{}try{localStorage.setItem(k,v)}catch{}},fmt=n=>n==null?"--:--":Math.floor(n/60)+":"+String(Math.max(0,n%60)).padStart(2,"0");
 const css=`#cq{position:fixed;z-index:999999;font:12px Arial;color:#ddd}#cq .bubble,#cq h3{touch-action:none}#cq input,#cq button{touch-action:auto;pointer-events:auto}#cq .bubble{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#15171b;border:1px solid #4a505b;box-shadow:0 4px 15px #0009;color:#fff;font-weight:900;font-size:11px;cursor:grab;user-select:none}#cq.open .bubble{display:none}#cq .panel{display:none;width:230px;max-width:calc(100vw - 12px);max-height:calc(100vh - 12px);background:#15171b;border:1px solid #383c45;border-radius:9px;box-shadow:0 8px 28px #0009;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-sizing:border-box}#cq.open .panel{display:block}#cq h3{margin:0;padding:7px 9px;background:#101216;color:#fff;font-size:13px;cursor:grab;user-select:none;position:sticky;top:0;z-index:2}#cq h3 .min,#cq h3 .compactBtn{float:right;cursor:pointer;padding:0 4px}#cq.compact .panel{width:210px}#cq.compact .b{padding:5px}#cq.compact .acts,#cq.compact .energySummary,#cq.compact .list,#cq.compact .lead,#cq.compact .admin,#cq.compact .settings,#cq.compact .diag,#cq.compact .meta,#cq.compact .msg{display:none!important}#cq.compact .hero{padding:5px}#cq.compact .compactRoster{display:block}#cq:not(.compact) .compactRoster{display:none}.compactRoster{margin-top:5px;border-top:1px solid #30343b;padding-top:4px;font-size:10px}.compactRoster .cr{display:grid;grid-template-columns:54px 1fr;gap:5px;padding:2px 0}.compactRoster .cr b{color:#52e2a4}.compactRoster .you{margin-top:4px;color:#e8bd68;font-weight:800}.b{padding:7px}.hero{text-align:center;border:1px solid #333842;border-radius:7px;padding:5px}.hero.hit{background:#2b1518;border-color:#a72d35;color:#ff4651}.tm{font-size:23px;font-weight:900}.nx{font-size:14px;font-weight:900;margin:2px}.call{font-size:9px}.key{display:flex;gap:4px;margin:6px 0}.key input{min-width:0;flex:1;background:#0d0f12;color:#ddd;border:1px solid #363b44;border-radius:5px;padding:5px;font-size:11px}#cq button{min-height:36px;border:1px solid #59616e;border-radius:5px;padding:6px 8px;font-size:11px;font-weight:800;cursor:pointer;background:#343a44;color:#fff;text-shadow:0 1px 1px #000;box-shadow:inset 0 1px #ffffff12}#cq button:hover{background:#454d59}#cq button:disabled{opacity:.48;color:#c5c9cf;background:#24282f;cursor:default}.acts{display:flex;gap:4px;margin-bottom:5px}.list{margin:0;padding:0;list-style:none;max-height:130px;overflow:auto}.list li{display:grid;grid-template-columns:18px 1fr auto;padding:4px 1px;border-top:1px solid #292d34}.tag{font-size:8px;color:#52e2a4}.meta,.msg{font-size:9px;color:#929cab;margin-top:5px}.msg{color:#e8bd68}.admin{display:none;border-top:1px solid #30343b;margin-top:6px;padding-top:6px}.admin.on{display:block}.admin summary{cursor:pointer;font-weight:700;padding:5px 0;user-select:none}.admin .row{display:flex;gap:4px;margin-top:4px}.admin select{min-width:0;flex:1;min-height:36px;background:#0d0f12;color:#ddd;border:1px solid #363b44;border-radius:5px;padding:4px;font-size:10px}.lead{font-size:9px;color:#e8bd68;margin-top:4px}.settings{border-top:1px solid #30343b;margin-top:6px;padding-top:6px}.settings summary{cursor:pointer;font-weight:800;color:#cbd1da;padding:4px 0}.settings label{display:flex;align-items:center;gap:5px;margin-top:5px;font-size:9px;color:#aab2bf}.settings input[type=checkbox]{width:auto}.sound.on{background:#245c43;border-color:#3f9b70}.steal{background:#7d1f27!important;border-color:#c6424d!important;color:#fff!important}@media(max-width:430px){#cq .panel{width:min(230px,calc(100vw - 12px))}#cq h3{font-size:12px}.admin .row{flex-wrap:wrap}.admin .row select{flex:1 1 100%;font-size:16px}#cq button{min-height:40px}.key input{font-size:16px;min-height:40px;box-sizing:border-box}}`
@@ -119,6 +119,7 @@ function tornNow(){let w=typeof unsafeWindow!=="undefined"?unsafeWindow:window;t
 function localClock(){let snap=+session.chain_torn_timestamp||0;if(optimisticEndAt&&snap>optimisticSnapshotTs){optimisticEndAt=0;optimisticSnapshotTs=0}count=+session.chain_count||0;if(optimisticEndAt&&snap<=optimisticSnapshotTs){secs=Math.max(0,Math.ceil((optimisticEndAt-tornNow())/1000));return}let end=+session.chain_end_at||0;if(count<=0||end<=0){secs=null;return}secs=Math.ceil((end*1000-tornNow())/1000)}
 async function syncChainSnapshot(){let sent=Date.now(),j=await torn("/faction?selections=chain,timestamp"),recv=Date.now(),c=j.chain||{},ts=+(j.timestamp??0),ct=+(c.current??0),cm=+(c.max??c.maximum??0),end=+(c.end??0),cool=+(c.cooldown??0);if(!Number.isFinite(ts)||ts<=0)throw Error("Invalid Torn chain timestamp");if(!Number.isFinite(ct)||ct<0||!Number.isFinite(cm)||cm<0||!Number.isFinite(end)||end<0||!Number.isFinite(cool)||cool<0)throw Error("Invalid Torn chain snapshot");let tms=ts<1e12?ts*1000:ts;tornClockOffset=tms-((sent+recv)/2);lastTornClockSync=recv;lastChainSnapshotPoll=recv;let applied=await rpc("chain_apply_snapshot",{p_session:S,p_torn_timestamp:Math.floor(tms/1000),p_current:ct,p_max:cm,p_end:end,p_cooldown:cool});session.chain_torn_timestamp=Math.floor(tms/1000);session.chain_count=ct;session.chain_max=cm;session.chain_end_at=end;session.chain_cooldown_at=cool;session.chain_timer_seconds=ct>0&&end>0?Math.max(0,Math.min(600,end-Math.floor(tms/1000))):0;session.chain_timer_synced_at=new Date().toISOString();localClock();render();return {timestamp:Math.floor(tms/1000),current:ct,max:cm,end,cooldown:cool,applied}}
 async function load(){
+ const serial=++rtLoadSerial,revision=rtStateRevision,scope=S;
  const getRows=async path=>{
   let r=await db(path,{method:"GET"});
   if(r===undefined){
@@ -132,12 +133,14 @@ async function load(){
   if(!Array.isArray(nq))throw Error("Invalid queue response");
   const ns=await getRows("chain_sessions?session_id=eq."+encodeURIComponent(S)+"&select=*");
   if(!Array.isArray(ns)||ns.length!==1)throw Error("Invalid or missing session response");
-  // Commit both snapshots together; never overwrite confirmed state on partial failure.
+  // Ignore older requests and snapshots overtaken by Realtime events.
+  if(serial!==rtLoadSerial||revision!==rtStateRevision||scope!==S)return false;
   q=nq;session=ns[0];
   lastSharedLoad=Date.now();diag.queue=true;
   if(activeLoop&&session.active===false){stopActiveLoop();return true}
   localClock();render();return true;
  }catch(e){
+  if(serial!==rtLoadSerial||scope!==S)return false;
   diag.queue=false;diag.last="Queue sync: "+(e?.message||"failed");
   msg("Queue sync failed — retaining last confirmed data");
   localClock();render();return false;
@@ -148,6 +151,7 @@ function versionGuard(){if(!versionState.blocked)return true;msg("UPDATE REQUIRE
 async function control(action,value=null){if(!leader())return false;let r=await rpc("chain_session_control",{p_session:S,p_leader_id:me.id,p_action:action,p_value:value==null?null:String(value)});if(!rtJoined)await load();return r}
 function leader(){return !!me&&+session.leader_id===me.id}
 function rtStop(){
+ rtJoinRef=null;rtJoinTopic=null;
  clearTimeout(window.__cqRtReconnect);window.__cqRtReconnect=null;
  clearInterval(rtHeartbeat);rtHeartbeat=null;rtJoined=false;rtReconnectAttempt=0;
  const socket=rtSocket;rtSocket=null;
@@ -164,15 +168,15 @@ function scheduleRealtimeReconnect(){
   if(!rtSocket&&activeLoop&&session.active)startRealtime();
  },delay);
 }
-function rtSend(topic,event,payload){if(rtSocket&&rtSocket.readyState===1)try{let ref=String(++rtRef),m={topic,event,payload,ref};if(event==="phx_join")m.join_ref=ref;rtSocket.send(JSON.stringify(m))}catch{}}
-function rtApplyQueue(d){let typ=String(d?.type||d?.eventType||"").toUpperCase(),r=d?.record||d?.new||{},o=d?.old_record||d?.old||{},sid=String(r.session_id||o.session_id||"");if(sid!==S)return;let id=+(r.player_id||o.player_id||0);if(!id)return;if(typ==="DELETE")q=q.filter(x=>+x.player_id!==id);else{let i=q.findIndex(x=>+x.player_id===id);if(i>=0)q[i]={...q[i],...r};else q.push(r)}q.sort((a,b)=>(+a.position||999999)-(+b.position||999999)||String(a.joined_at||"").localeCompare(String(b.joined_at||"")));lastSharedLoad=Date.now();diag.queue=true;render()}
-function rtApplySession(d){let r=d?.record||d?.new||{};if(String(r.session_id||"")!==S)return;let wasLeader=leader();session={...session,...r};if(!wasLeader&&leader())lastChainSnapshotPoll=0;lastSharedLoad=Date.now();localClock();render();if(session.active===false)stopActiveLoop()}
+function rtSend(topic,event,payload){if(rtSocket&&rtSocket.readyState===1)try{let ref=String(++rtRef),m={topic,event,payload,ref};if(event==="phx_join"){m.join_ref=ref;rtJoinRef=ref;rtJoinTopic=topic}rtSocket.send(JSON.stringify(m));return ref}catch{}return null}
+function rtApplyQueue(d){let typ=String(d?.type||d?.eventType||"").toUpperCase(),r=d?.record||d?.new||{},o=d?.old_record||d?.old||{},sid=String(r.session_id||o.session_id||"");if(sid!==S)return;rtStateRevision++;let id=+(r.player_id||o.player_id||0);if(!id)return;if(typ==="DELETE")q=q.filter(x=>+x.player_id!==id);else{let i=q.findIndex(x=>+x.player_id===id);if(i>=0)q[i]={...q[i],...r};else q.push(r)}q.sort((a,b)=>(+a.position||999999)-(+b.position||999999)||String(a.joined_at||"").localeCompare(String(b.joined_at||"")));lastSharedLoad=Date.now();diag.queue=true;render()}
+function rtApplySession(d){let r=d?.record||d?.new||{};if(String(r.session_id||"")!==S)return;rtStateRevision++;let wasLeader=leader();session={...session,...r};if(!wasLeader&&leader())lastChainSnapshotPoll=0;lastSharedLoad=Date.now();localClock();render();if(session.active===false)stopActiveLoop()}
 function startRealtime(){
  if(rtSocket||!activeLoop||!session.active||S==="pending")return;
  try{
   const ws=U.replace(/^https:/,"wss:")+"/realtime/v1/websocket?apikey="+encodeURIComponent(K)+"&vsn=1.0.0";
   const topic="realtime:chain-manager:"+S;
-  const socket=new WebSocket(ws);rtSocket=socket;rtJoined=false;
+  const socket=new WebSocket(ws);rtSocket=socket;rtJoined=false;rtJoinRef=null;rtJoinTopic=null;
   socket.onopen=()=>{
    if(rtSocket!==socket)return;
    rtSend(topic,"phx_join",{config:{broadcast:{ack:false,self:false},presence:{enabled:false},postgres_changes:[{event:"*",schema:"public",table:"chain_queue",filter:"session_id=eq."+S},{event:"UPDATE",schema:"public",table:"chain_sessions",filter:"session_id=eq."+S}]}});
@@ -183,6 +187,7 @@ function startRealtime(){
    try{
     const m=JSON.parse(e.data);
     if(m?.event==="phx_reply"){
+     if(String(m.ref||"")!==String(rtJoinRef||"")||m.topic!==rtJoinTopic)return;
      if(m?.payload?.status==="ok"){
       const recovered=!rtJoined;
       rtJoined=true;rtReconnectAttempt=0;
@@ -200,7 +205,7 @@ function startRealtime(){
   socket.onerror=()=>{if(rtSocket===socket)rtJoined=false};
   socket.onclose=()=>{
    if(rtSocket!==socket)return;
-   rtJoined=false;clearInterval(rtHeartbeat);rtHeartbeat=null;rtSocket=null;
+   rtJoined=false;rtJoinRef=null;rtJoinTopic=null;clearInterval(rtHeartbeat);rtHeartbeat=null;rtSocket=null;
    scheduleRealtimeReconnect();
   };
  }catch(e){rtJoined=false;rtSocket=null;scheduleRealtimeReconnect()}
