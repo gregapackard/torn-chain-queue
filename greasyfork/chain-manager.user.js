@@ -181,7 +181,7 @@ function installAttackOutcomeWatcher(){
    if(t==="leave"||t==="mug"||t==="hospitalize"||t==="hospitalise")setTimeout(signalAttackOutcome,0)
  },true)
 }
-async function recordAttack(id,name,attackId,ended=null){let changed=await rpc("chain_record_attack",{p_session:S,p_player_id:+id,p_player_name:name||"Player",p_attack_id:attackId,p_ended_at:ended?+ended:null});if(changed)msg((name||"Player")+" hit → synced");return changed}
+async function recordAttack(id,name,attackId,ended=null){if(!activeLoop||!cqOwnPoller())return false;let changed=await rpc("chain_record_attack",{p_session:S,p_player_id:+id,p_player_name:name||"Player",p_attack_id:attackId,p_ended_at:ended?+ended:null});if(changed)msg((name||"Player")+" hit → synced");return changed}
 async function bottom(id,name,attackId=null,ended=null){return recordAttack(id,name,attackId,ended)}
 function rows(j){if(!j||typeof j!=="object")return [];let v=j.attacks??j;return Array.isArray(v)?v:Object.values(v||{}).filter(x=>x&&typeof x==="object")}
 function good(a){let id=+(a.attacker?.id||a.attacker_id||0),r=a.respect_gain??a.respect;if(!id)return false;if(r!=null)return +r>0;return !/lost|stalemate|escape/i.test(a.result||"")}
@@ -190,12 +190,13 @@ async function pushEnergy(){let p=myPos(),gap=p>0&&p<=5?60000:300000;if(!me||!q.
 function mine(a){return +(a.attacker?.id||a.attacker_id||0)===me?.id}
 function cqAttackId(a){return String(a.id||a.attack_id||a.code||a.ended)}
 function cqAttackTime(a){return +(a.ended||a.timestamp||0)}
-async function cqAttackBackfill(scope,cursor,limit){
+async function cqAttackBackfill(scope,cursor,limit,initial=null){
  const seen=new Map();let before=null,found=false,first=null;
  for(let page=0;page<12;page++){
   const path="/"+scope+"/attacks?limit="+limit+"&sort=DESC"+(before===null?"":"&to="+before);
-  const raw=rows(await torn(path));
+  const raw=page===0&&initial?initial:rows(await torn(path));
   if(!raw.length)break;
+  if(!cqOwnPoller()||!activeLoop)return {found:false,first,records:[]};
   if(first===null)first=cqAttackId(raw[0]);
   for(const x of raw){if(cqAttackId(x)===String(cursor)){found=true;break}seen.set(cqAttackId(x),x)}
   if(found||raw.length<limit)break;
@@ -212,10 +213,10 @@ async function cqAttackBackfill(scope,cursor,limit){
 async function pollMine(){
  if(!me||!q.some(x=>+x.player_id===me.id)||Date.now()-lastMinePoll<(session.leader_id&&Date.now()-Date.parse(session.leader_heartbeat_at||0)<30000?15000:6000))return;
  lastMinePoll=Date.now();
- const initial=rows(await torn("/user/attacks?limit=10&sort=DESC"));
+ const initial=rows(await torn("/user/attacks?limit=100&sort=DESC"));
  if(!initial.length)return;
  if(myAttackCursor==null){myAttackCursor=cqAttackId(initial[0]);return}
- const result=await cqAttackBackfill("user",myAttackCursor,100);
+ const result=await cqAttackBackfill("user",myAttackCursor,100,initial);
  if(!result.found){cqAttackGap=true;msg("PERSONAL ATTACK GAP — history incomplete; cursor preserved");diag.torn=false;paintDiag();return}
  const hits=result.records.filter(mine);
  for(const x of hits){if(!cqOwnPoller()||!activeLoop)return;await bottom(me.id,me.name,cqAttackId(x),cqAttackTime(x)||null)}
@@ -228,9 +229,9 @@ async function pollLeader(){
  const initial=rows(await torn("/faction/attacks?limit=100&sort=DESC"));
  if(!initial.length)return;
  const cursor=session.last_attack_id;
- if(!cursor){await control("cursor",cqAttackId(initial[0]))}
+ if(!cursor){if(cqOwnPoller()&&activeLoop)await control("cursor",cqAttackId(initial[0]))}
  else{
-  const result=await cqAttackBackfill("faction",cursor,100);
+  const result=await cqAttackBackfill("faction",cursor,100,initial);
   if(!result.found){cqAttackGap=true;msg("FACTION ATTACK GAP — history incomplete; cursor preserved");diag.torn=false;paintDiag();return}
   for(const x of result.records){
    if(!cqOwnPoller()||!activeLoop||!leader())return;
@@ -239,7 +240,7 @@ async function pollLeader(){
   }
   if(result.records.length)lastChainSnapshotPoll=0;
  }
- if(Date.now()-lastHeartbeat>=15000){await control("heartbeat");lastHeartbeat=Date.now()}
+ if(cqOwnPoller()&&activeLoop&&Date.now()-lastHeartbeat>=15000){await control("heartbeat");lastHeartbeat=Date.now()}
 }
 async function maybeFailover(){if(leader()||!me||Date.now()-lastFailoverCheck<15000)return;let mine=q.find(x=>+x.player_id===me.id);if(!mine?.can_lead)return;lastFailoverCheck=Date.now();let t=Date.parse(session.leader_heartbeat_at||session.updated_at||0);if(session.leader_id&&Number.isFinite(t)&&Date.now()-t<45000)return;try{let won=await rpc("chain_claim_stale_lead",{p_session:S,p_player_id:me.id});if(won){await load();if(leader()){lastChainSnapshotPoll=0;await syncChainSnapshot();msg("Leader failover — you are Chain Lead")}}}catch(e){await reportError("Leader failover",e,"chain_claim_stale_lead")}}
 function myPos(){return me?q.findIndex(x=>+x.player_id===me.id)+1:0}
