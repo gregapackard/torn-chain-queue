@@ -190,25 +190,33 @@ async function pushEnergy(){let p=myPos(),gap=p>0&&p<=5?60000:300000;if(!me||!q.
 function mine(a){return +(a.attacker?.id||a.attacker_id||0)===me?.id}
 function cqAttackId(a){return String(a.id||a.attack_id||a.code||a.ended)}
 function cqAttackTime(a){return +(a.ended||a.timestamp||0)}
-async function cqAttackBackfill(scope,cursor,limit,initial=null){
- const seen=new Map();let before=null,found=false,first=null;
+async function cqAttackBackfill(scope,cursor,limit){
+ // Torn API v2 idFilter makes from/to and sort operate on attack IDs.
+ // Unlike timestamp pagination, it can cross a burst of >100 hits in one second.
+ const cursorId=Number(cursor);
+ if(!Number.isSafeInteger(cursorId)||cursorId<=0)return {found:false,first:null,records:[]};
+ const seen=new Map();let to=null,first=null,found=false;
  for(let page=0;page<12;page++){
-  const path="/"+scope+"/attacks?limit="+limit+"&sort=DESC"+(before===null?"":"&to="+before);
-  const raw=page===0&&initial?initial:rows(await torn(path));
-  if(!raw.length)break;
   if(!cqOwnPoller()||!activeLoop)return {found:false,first,records:[]};
+  const path="/"+scope+"/attacks?limit="+limit+"&sort=DESC&filters=idFilter"+(to===null?"":"&to="+to);
+  const raw=rows(await torn(path));
+  if(!raw.length)break;
   if(first===null)first=cqAttackId(raw[0]);
-  for(const x of raw){if(cqAttackId(x)===String(cursor)){found=true;break}seen.set(cqAttackId(x),x)}
-  if(found||raw.length<limit)break;
-  const times=raw.map(cqAttackTime).filter(t=>Number.isFinite(t)&&t>0);
-  if(!times.length)break;
-  const oldest=Math.min(...times);
-  if(before!==null&&oldest>=before)break;
-  before=oldest;
+  let oldest=null;
+  for(const x of raw){
+   const id=Number(cqAttackId(x));
+   if(!Number.isSafeInteger(id)||id<=0)return {found:false,first,records:[]};
+   if(oldest===null||id<oldest)oldest=id;
+   if(id===cursorId){found=true;break}
+   if(id>cursorId)seen.set(String(id),x);
+  }
+  if(found||raw.length<limit||oldest===null||oldest<=1)break;
+  const next=oldest-1;
+  if(to!==null&&next>=to)break;
+  to=next;
  }
  if(!found)return {found:false,first,records:[]};
- const records=[...seen.values()].filter(good).sort((x,y)=>cqAttackTime(x)-cqAttackTime(y)||Number(cqAttackId(x))-Number(cqAttackId(y)));
- return {found:true,first,records};
+ return {found:true,first,records:[...seen.values()].filter(good).sort((x,y)=>cqAttackTime(x)-cqAttackTime(y)||Number(cqAttackId(x))-Number(cqAttackId(y)))};
 }
 async function pollMine(){
  if(!me||!q.some(x=>+x.player_id===me.id)||Date.now()-lastMinePoll<(session.leader_id&&Date.now()-Date.parse(session.leader_heartbeat_at||0)<30000?15000:6000))return;
@@ -216,7 +224,7 @@ async function pollMine(){
  const initial=rows(await torn("/user/attacks?limit=100&sort=DESC"));
  if(!initial.length)return;
  if(myAttackCursor==null){myAttackCursor=cqAttackId(initial[0]);return}
- const result=await cqAttackBackfill("user",myAttackCursor,100,initial);
+ const result=await cqAttackBackfill("user",myAttackCursor,100);
  if(!result.found){cqAttackGap=true;msg("PERSONAL ATTACK GAP — history incomplete; cursor preserved");diag.torn=false;paintDiag();return}
  const hits=result.records.filter(mine);
  for(const x of hits){if(!cqOwnPoller()||!activeLoop)return;await bottom(me.id,me.name,cqAttackId(x),cqAttackTime(x)||null)}
@@ -231,7 +239,7 @@ async function pollLeader(){
  const cursor=session.last_attack_id;
  if(!cursor){if(cqOwnPoller()&&activeLoop)await control("cursor",cqAttackId(initial[0]))}
  else{
-  const result=await cqAttackBackfill("faction",cursor,100,initial);
+  const result=await cqAttackBackfill("faction",cursor,100);
   if(!result.found){cqAttackGap=true;msg("FACTION ATTACK GAP — history incomplete; cursor preserved");diag.torn=false;paintDiag();return}
   for(const x of result.records){
    if(!cqOwnPoller()||!activeLoop||!leader())return;
