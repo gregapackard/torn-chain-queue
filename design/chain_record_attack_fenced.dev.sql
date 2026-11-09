@@ -13,7 +13,7 @@ declare
  v public.chain_poll_leases%rowtype;
  v_changed boolean;
 begin
- -- The row lock is held until transaction end, serializing lease takeover
+ -- Acquire the same advisory lock as claim_poll_lease before the row lock.\n -- This prevents lease takeover and attack writes from deadlocking.\n perform pg_advisory_xact_lock(hashtextextended(p_session, 719314));\n -- The row lock is held until transaction end, serializing lease takeover
  -- against this write. A stale holder cannot write after takeover commits.
  select * into v from public.chain_poll_leases
  where session_id=p_session for update;
@@ -23,7 +23,7 @@ begin
    or v.expires_at<=clock_timestamp() then
    raise exception 'STALE_COORDINATOR' using errcode='P0001';
  end if;
- select public.chain_record_attack(
+ -- The legacy function takes a separate per-session advisory lock.\n -- Its idempotent insert and queue movement remain in this transaction.\n select public.chain_record_attack(
    p_session,p_player_id,p_player_name,p_attack_id,p_ended_at
  ) into v_changed;
  return coalesce(v_changed,false);
