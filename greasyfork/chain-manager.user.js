@@ -17,7 +17,7 @@
 // @supportURL   https://github.com/gregapackard/torn-chain-queue/issues
 // ==/UserScript==
 (()=>{"use strict";
-const PDAK="###PDA-APIKEY###",U="https://axpmotlarzmmhjggmgce.supabase.co",K="sb_publishable_hIkbXGYNCkv-Gm4aaDFxcQ_t1pX8Urw",A="https://api.torn.com/v2",KS="chainQueue.tornApiKey",PS="chainQueue.pos",SS="chainQueue.sound",OWNER_ID=4315564;let S="pending",factionId=0,activeLoop=false,rtSocket=null,rtHeartbeat=null,rtRef=0,rtJoined=false,lastFailoverCheck=0;
+const PDAK="###PDA-APIKEY###",U="https://axpmotlarzmmhjggmgce.supabase.co",K="sb_publishable_hIkbXGYNCkv-Gm4aaDFxcQ_t1pX8Urw",A="https://api.torn.com/v2",KS="chainQueue.tornApiKey",PS="chainQueue.pos",SS="chainQueue.sound",OWNER_ID=4315564;let S="pending",factionId=0,activeLoop=false,rtSocket=null,rtHeartbeat=null,rtRef=0,rtJoined=false,lastFailoverCheck=0,rtReconnectAttempt=0,rtJoinRef=null,rtJoinTopic=null,rtLoadSerial=0,rtStateRevision=0;
 const VERSION="0.9.35";let versionState={latest:VERSION,minimum:VERSION,blocked:false,update:false,checked:false};const vercmp=(a,b)=>{let A=String(a).split(".").map(Number),B=String(b).split(".").map(Number);for(let i=0;i<Math.max(A.length,B.length);i++){let d=(A[i]||0)-(B[i]||0);if(d)return d>0?1:-1}return 0};let me=null,q=[],secs=null,count=0,apiFails=0,myAttackCursor=null,lastSharedLoad=0,lastTimerSync=0,lastEnergyPush=0,lastNextId=null,lastQueueSig=null,audioCtx=null,pdaHttpChain=Promise.resolve(),tornClockOffset=0,lastTornClockSync=0,lastChainSnapshotPoll=0,lastMinePoll=0,lastLeaderPoll=0,lastHeartbeat=0,optimisticEndAt=0,optimisticSnapshotTs=0,canLead=true,errorSent=new Map(),diag={queue:false,id:false,key:false,torn:false,energy:false,last:""},session={active:false,leader_id:null,leader_name:null,trigger_seconds:240,paused:false,manual_hit_player_id:null,last_attack_id:null,chain_timer_seconds:null,chain_timer_synced_at:null,chain_count:0,chain_end_at:null,chain_max:0,chain_torn_timestamp:null,chain_cooldown_at:null};
 const $=x=>document.querySelector(x),cq=x=>document.querySelector("#cq "+x),storeGet=(k,d="")=>{try{let v=GM_getValue(k);if(v!==undefined&&v!==null&&v!=="")return v}catch{}try{return localStorage.getItem(k)??d}catch{return d}},storeSet=(k,v)=>{try{GM_setValue(k,v)}catch{}try{localStorage.setItem(k,v)}catch{}},fmt=n=>n==null?"--:--":Math.floor(n/60)+":"+String(Math.max(0,n%60)).padStart(2,"0");
 const css=`#cq{position:fixed;z-index:999999;font:12px Arial;color:#ddd}#cq .bubble,#cq h3{touch-action:none}#cq input,#cq button{touch-action:auto;pointer-events:auto}#cq .bubble{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#15171b;border:1px solid #4a505b;box-shadow:0 4px 15px #0009;color:#fff;font-weight:900;font-size:11px;cursor:grab;user-select:none}#cq.open .bubble{display:none}#cq .panel{display:none;width:230px;max-width:calc(100vw - 12px);max-height:calc(100vh - 12px);background:#15171b;border:1px solid #383c45;border-radius:9px;box-shadow:0 8px 28px #0009;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-sizing:border-box}#cq.open .panel{display:block}#cq h3{margin:0;padding:7px 9px;background:#101216;color:#fff;font-size:13px;cursor:grab;user-select:none;position:sticky;top:0;z-index:2}#cq h3 .min,#cq h3 .compactBtn{float:right;cursor:pointer;padding:0 4px}#cq.compact .panel{width:210px}#cq.compact .b{padding:5px}#cq.compact .acts,#cq.compact .energySummary,#cq.compact .list,#cq.compact .lead,#cq.compact .admin,#cq.compact .settings,#cq.compact .diag,#cq.compact .meta,#cq.compact .msg{display:none!important}#cq.compact .hero{padding:5px}#cq.compact .compactRoster{display:block}#cq:not(.compact) .compactRoster{display:none}.compactRoster{margin-top:5px;border-top:1px solid #30343b;padding-top:4px;font-size:10px}.compactRoster .cr{display:grid;grid-template-columns:54px 1fr;gap:5px;padding:2px 0}.compactRoster .cr b{color:#52e2a4}.compactRoster .you{margin-top:4px;color:#e8bd68;font-weight:800}.b{padding:7px}.hero{text-align:center;border:1px solid #333842;border-radius:7px;padding:5px}.hero.hit{background:#2b1518;border-color:#a72d35;color:#ff4651}.tm{font-size:23px;font-weight:900}.nx{font-size:14px;font-weight:900;margin:2px}.call{font-size:9px}.key{display:flex;gap:4px;margin:6px 0}.key input{min-width:0;flex:1;background:#0d0f12;color:#ddd;border:1px solid #363b44;border-radius:5px;padding:5px;font-size:11px}#cq button{min-height:36px;border:1px solid #59616e;border-radius:5px;padding:6px 8px;font-size:11px;font-weight:800;cursor:pointer;background:#343a44;color:#fff;text-shadow:0 1px 1px #000;box-shadow:inset 0 1px #ffffff12}#cq button:hover{background:#454d59}#cq button:disabled{opacity:.48;color:#c5c9cf;background:#24282f;cursor:default}.acts{display:flex;gap:4px;margin-bottom:5px}.list{margin:0;padding:0;list-style:none;max-height:130px;overflow:auto}.list li{display:grid;grid-template-columns:18px 1fr auto;padding:4px 1px;border-top:1px solid #292d34}.tag{font-size:8px;color:#52e2a4}.meta,.msg{font-size:9px;color:#929cab;margin-top:5px}.msg{color:#e8bd68}.admin{display:none;border-top:1px solid #30343b;margin-top:6px;padding-top:6px}.admin.on{display:block}.admin summary{cursor:pointer;font-weight:700;padding:5px 0;user-select:none}.admin .row{display:flex;gap:4px;margin-top:4px}.admin select{min-width:0;flex:1;min-height:36px;background:#0d0f12;color:#ddd;border:1px solid #363b44;border-radius:5px;padding:4px;font-size:10px}.lead{font-size:9px;color:#e8bd68;margin-top:4px}.settings{border-top:1px solid #30343b;margin-top:6px;padding-top:6px}.settings summary{cursor:pointer;font-weight:800;color:#cbd1da;padding:4px 0}.settings label{display:flex;align-items:center;gap:5px;margin-top:5px;font-size:9px;color:#aab2bf}.settings input[type=checkbox]{width:auto}.sound.on{background:#245c43;border-color:#3f9b70}.steal{background:#7d1f27!important;border-color:#c6424d!important;color:#fff!important}@media(max-width:430px){#cq .panel{width:min(230px,calc(100vw - 12px))}#cq h3{font-size:12px}.admin .row{flex-wrap:wrap}.admin .row select{flex:1 1 100%;font-size:16px}#cq button{min-height:40px}.key input{font-size:16px;min-height:40px;box-sizing:border-box}}`
@@ -25,7 +25,26 @@ function place(d){let p;try{p=JSON.parse(localStorage.getItem(PS)||"null")}catch
 function drag(el,handle){let sx,sy,l,t,moved=false;const down=e=>{if(e.target.closest("input,button,.min"))return;if(e.button!=null&&e.button!==0)return;sx=e.clientX??e.touches?.[0]?.clientX;sy=e.clientY??e.touches?.[0]?.clientY;let r=el.getBoundingClientRect();l=r.left;t=r.top;moved=false;document.addEventListener("mousemove",move);document.addEventListener("mouseup",up);document.addEventListener("touchmove",move,{passive:false});document.addEventListener("touchend",up)};const move=e=>{let x=e.clientX??e.touches?.[0]?.clientX,y=e.clientY??e.touches?.[0]?.clientY;if(x==null)return;e.preventDefault();if(Math.abs(x-sx)+Math.abs(y-sy)>5)moved=true;el.style.right="auto";el.style.bottom="auto";el.style.left=Math.max(0,Math.min(innerWidth-el.offsetWidth,l+x-sx))+"px";el.style.top=Math.max(0,Math.min(innerHeight-el.offsetHeight,t+y-sy))+"px"};const up=()=>{document.removeEventListener("mousemove",move);document.removeEventListener("mouseup",up);document.removeEventListener("touchmove",move);document.removeEventListener("touchend",up);let r=el.getBoundingClientRect();localStorage.setItem(PS,JSON.stringify({x:r.left,y:r.top}));setTimeout(()=>moved=false,50)};handle.addEventListener("mousedown",down);handle.addEventListener("touchstart",down,{passive:true});return()=>moved}
 function clampOpen(d){let r=d.getBoundingClientRect(),pad=6,x=Math.max(pad,Math.min(innerWidth-r.width-pad,r.left)),y=Math.max(pad,Math.min(innerHeight-r.height-pad,r.top));d.style.right="auto";d.style.bottom="auto";d.style.left=x+"px";d.style.top=y+"px"}
 function mount(){if(document.querySelector("#cq"))return;let d=document.createElement("div");d.id="cq";d.innerHTML=`<style>${css}</style><div class="bubble" title="Chain Queue"><span class="bi">🔗</span></div><div class="panel"><h3>CLOUDY'S CHAIN MANAGER <span id="st">SETUP</span><span class="min" title="Minimize">−</span><span class="compactBtn" title="Small window">▣</span></h3><div class="b"><div class="hero"><div class="tm">--:--</div><div class="chain" style="font-size:11px;font-weight:900;margin-top:1px">—</div><div class="call">Connect API</div><div class="nx">Nobody queued</div><div class="compactRoster"></div></div><div class="acts"><button id="join" disabled>Join</button><button id="leave" disabled>Leave</button><button id="energy">⚡ Energy</button></div><div class="energySummary" style="display:none"></div><ol class="list"></ol><div class="lead"></div><div class="sessionCtl" style="display:none;gap:4px;margin-top:6px"><button id="startsession">▶ START SESSION</button><button id="endsession">■ END SESSION</button></div><details class="admin"><summary>👑 LEADER CONTROLS</summary><div class="row"><select id="tempo"><option value="60">1:00</option><option value="90">1:30</option><option value="120">2:00</option><option value="150">2:30</option><option value="180">3:00</option><option value="210">3:30</option><option value="240">4:00</option><option value="270">4:30</option><option value="300">5:00</option></select><button id="hitnow">HIT NOW</button><button id="pause">Pause</button></div><div class="row"><select id="target"></select><button id="skip">Skip</button><button id="remove">Remove</button><button id="pass">Pass Lead</button></div></details><details class="settings"><summary>⚙ Settings</summary><div class="key"><input id="ck" type="password" placeholder="Limited API key"><button id="con">Connect</button></div><div class="row"><button id="sound" class="sound">🔊 Sounds: ON</button></div><div class="row"><button id="takelead" class="steal">⚠ STEAL LEAD</button></div><div class="meta">Emergency override only if the leader is AFK or disconnected.</div><div class="meta version"></div></details><div class="diag"></div><div class="meta"></div><div class="msg"></div></div></div>`;document.body.appendChild(d);place(d);cq("#ck").value=storeGet(KS)||"";cq("#st").textContent=storeGet(KS)?"CONNECTING":"SETUP";setSoundButton();let wasDrag=drag(d,$("#cq .bubble"));drag(d,$("#cq h3"));$("#cq .bubble").onclick=()=>{if(!wasDrag()){d.classList.add("open");requestAnimationFrame(()=>clampOpen(d));if(!activeLoop)setTimeout(checkForActiveSession,0)}};$("#cq .min").onclick=e=>{e.stopPropagation();d.classList.remove("open");d.classList.remove("compact");place(d)};$("#cq .compactBtn").onclick=e=>{e.stopPropagation();d.classList.toggle("compact");requestAnimationFrame(()=>clampOpen(d))};cq("#con").onclick=connect;cq("#join").onclick=join;cq("#leave").onclick=leave;cq("#tempo").onchange=tempo;cq("#hitnow").onclick=manualHit;cq("#pause").onclick=togglePause;cq("#skip").onclick=skip;cq("#remove").onclick=removeTarget;cq("#pass").onclick=passLead;cq("#takelead").onclick=takeLead;cq("#startsession").onclick=()=>setSessionActive(true);cq("#endsession").onclick=()=>setSessionActive(false);cq("#sound").onclick=toggleSound;cq("#energy").onclick=()=>{let e=$("#cq .energySummary");e.style.display=e.style.display==="none"?"block":"none";render()};render()}
-function safeText(sel,v){let e=cq(sel);if(e)e.textContent=v==null?"":String(v)}function safeHTML(sel,v){let e=cq(sel);if(e)e.innerHTML=v==null?"":String(v)}function paintDiag(){let ve=cq(".version");if(ve){ve.textContent="Version: v"+VERSION+(versionState.blocked?" • UPDATE REQUIRED → v"+versionState.latest:versionState.update?" • UPDATE AVAILABLE → v"+versionState.latest:" • CURRENT");ve.style.color=versionState.blocked?"#ff5b5b":versionState.update?"#ffd166":""}let e=cq(".diag");if(e)e.textContent=["QUEUE "+(diag.queue?"✓":"×"),"ID "+(diag.id?"✓":"×"),"KEY "+(diag.key?"✓":"×"),"TORN "+(diag.torn?"✓":"×"),"ENERGY "+(diag.energy?"✓":"×")].join("  ")+(diag.last?" • "+diag.last:"")}function soundOn(){return storeGet(SS)!=="0"}function unlockAudio(){try{audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==="suspended")audioCtx.resume()}catch{}}function setSoundButton(){let b=cq("#sound");if(!b)return;b.textContent=soundOn()?"🔊 Sounds: ON":"🔇 Sounds: OFF";b.classList.toggle("on",soundOn())}function toggleSound(){storeSet(SS,soundOn()?"0":"1");setSoundButton();if(soundOn()){unlockAudio();tone("hit")}}function tone(kind){if(!soundOn())return;try{unlockAudio();let now=audioCtx.currentTime,notes=kind==="turn"?[660,880,1040]:[520,700];notes.forEach((f,i)=>{let o=audioCtx.createOscillator(),g=audioCtx.createGain();o.frequency.value=f;g.gain.setValueAtTime(.0001,now+i*.11);g.gain.exponentialRampToValueAtTime(.12,now+i*.11+.015);g.gain.exponentialRampToValueAtTime(.0001,now+i*.11+.1);o.connect(g);g.connect(audioCtx.destination);o.start(now+i*.11);o.stop(now+i*.11+.11)})}catch{}}function msg(x){diag.last=x||"";let e=cq(".msg");if(e)e.textContent=x||"";paintDiag()}
+function safeText(sel,v){let e=cq(sel);if(e)e.textContent=v==null?"":String(v)}function safeHTML(sel,v){let e=cq(sel);if(e)e.innerHTML=v==null?"":String(v)}function paintDiag(){let ve=cq(".version");if(ve){ve.textContent="Version: v"+VERSION+(versionState.blocked?" • UPDATE REQUIRED → v"+versionState.latest:versionState.update?" • UPDATE AVAILABLE → v"+versionState.latest:" • CURRENT");ve.style.color=versionState.blocked?"#ff5b5b":versionState.update?"#ffd166":""}let e=cq(".diag");if(e)e.textContent=["QUEUE "+(diag.queue?"✓":"×"),"ID "+(diag.id?"✓":"×"),"KEY "+(diag.key?"✓":"×"),"TORN "+(diag.torn?"✓":"×"),"ENERGY "+(diag.energy?"✓":"×")].join("  ")+(diag.last?" • "+diag.last:"")}function soundOn(){return storeGet(SS)!=="0"}function unlockAudio(){try{audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==="suspended")audioCtx.resume()}catch{}}document.addEventListener("pointerdown",()=>{if(soundOn())unlockAudio()},{passive:true});
+function setSoundButton(){let b=cq("#sound");if(!b)return;b.textContent=soundOn()?"🔊 Sounds: ON":"🔇 Sounds: OFF";b.classList.toggle("on",soundOn())}function toggleSound(){storeSet(SS,soundOn()?"0":"1");setSoundButton();if(soundOn()){unlockAudio();tone("hit")}}function tone(kind){if(!soundOn())return;try{unlockAudio();if(!audioCtx||audioCtx.state!=="running")return;let now=audioCtx.currentTime,notes=kind==="urgent"?[880,440,880,440,1040,1040]:kind==="turn"?[660,880,1040]:[520,700],step=kind==="urgent"?.17:.11;notes.forEach((f,i)=>{let o=audioCtx.createOscillator(),g=audioCtx.createGain();o.frequency.value=f;g.gain.setValueAtTime(.0001,now+i*step);g.gain.exponentialRampToValueAtTime(kind==="urgent"?.22:.12,now+i*step+.015);g.gain.exponentialRampToValueAtTime(.0001,now+i*step+step-.01);o.connect(g);g.connect(audioCtx.destination);o.start(now+i*step);o.stop(now+(i+1)*step)})}catch{}}
+let cqAlertTurn=null,cqAlertUrgentAt=0;
+function cqAlertTick(){
+ if(!activeLoop||!session.active||!me||!soundOn()||session.paused){cqAlertTurn=null;return}
+ const n=q[0],mine=+n?.player_id===me.id,trigger=+session.trigger_seconds||240;
+ if(!mine||count<=0||!Number.isFinite(secs)||secs<=0){cqAlertTurn=null;return}
+ const identity=String(S)+":"+String(n.player_id)+":"+String(n.joined_at||"");
+ if(cqAlertTurn!==identity){cqAlertTurn=identity;cqAlertUrgentAt=0;tone("turn")}
+ if(secs<=trigger&&Date.now()-cqAlertUrgentAt>=30000){
+   // Cross-tab best-effort sound deduplication. Never suppress the local alert if storage is unavailable.
+   const key="cq:alert:"+String(me.id)+":"+String(S),now=Date.now();
+   let last=0;try{last=+(localStorage.getItem(key)||0)}catch{}
+   if(now-last>=25000){
+     try{localStorage.setItem(key,String(now))}catch{}
+     tone("urgent")
+   }
+   cqAlertUrgentAt=now
+ }
+}function msg(x){diag.last=x||"";let e=cq(".msg");if(e)e.textContent=x||"";paintDiag()}
 async function request(url,opt={}){
  let method=(opt.method||"GET").toUpperCase(),headers=opt.headers||{},body=opt.body;
  const parse=r=>{
@@ -43,10 +62,55 @@ async function request(url,opt={}){
  }
  return new Promise((resolve,reject)=>GM_xmlhttpRequest({method,url,headers,data:body,onload:r=>{try{resolve(parse(r))}catch(e){reject(e)}},onerror:()=>reject(Error("Network request failed"))}))
 }
-async function torn(p){let pk=PDAK!=="###PDA-APIKEY###"?PDAK:"",k=pk||storeGet(KS);diag.key=!!k;if(!k)throw Error("Enter a Limited API key");let j=await request(A+p,{headers:{Authorization:"ApiKey "+k}});if(j==null)throw Error("Empty Torn API response: "+p);if(typeof j==="string")throw Error("Unexpected Torn response: "+j.slice(0,80));if(j?.error){let e=Error(j.error?.error||j.error?.message||"Torn API error");e.code=String(j.error?.code??"");e.endpoint=p;throw e}return j}
+// Shared Torn API request scheduler: coalesce identical in-flight reads and back off on rate limits.
+const tornInFlight=new Map(),tornBackoff=new Map();
+function tornCooldown(p){return Math.max(tornBackoff.get("*")?.until||0,tornBackoff.get(p)?.until||0)-Date.now()}
+// Prefer the browser's atomic Web Locks election. Older browsers/PDA fall back to a lease.
+const cqTabId=String(Date.now())+"-"+Math.random().toString(36).slice(2);
+let cqTabOwner=false,cqTabLeaseTimer=null,cqLockPending=false,cqLockRelease=null,cqLockGeneration=0;
+const cqWebLocks=!!(navigator.locks&&typeof navigator.locks.request==="function");
+function cqLeaseKey(){return "cq:poller:"+String(me?.id||"pending")+":"+String(S)}
+function cqReadLease(){try{return JSON.parse(localStorage.getItem(cqLeaseKey())||"null")}catch{return null}}
+function cqOwnPoller(){return cqTabOwner&&(cqWebLocks||cqReadLease()?.id===cqTabId)}
+function cqActivatePoller(){if(cqOwnPoller()&&activeLoop&&!window.__cqFast)window.__cqFast=setTimeout(pollFast,0)}
+function cqLosePoller(){cqTabOwner=false;clearTimeout(window.__cqFast);window.__cqFast=null}
+function cqLeaseTick(){
+ if(!activeLoop||!me||S==="pending"||!session.active)return;
+ if(cqWebLocks){
+   if(cqTabOwner||cqLockPending)return;
+   cqLockPending=true;
+   const generation=cqLockGeneration;
+   navigator.locks.request(cqLeaseKey(),{mode:"exclusive",ifAvailable:true},async lock=>{
+     cqLockPending=false;
+     if(!lock||generation!==cqLockGeneration||!activeLoop||!session.active)return;
+     cqTabOwner=true;cqActivatePoller();
+     try{await new Promise(resolve=>{cqLockRelease=resolve})}
+     finally{cqLockRelease=null;cqLosePoller()}
+   }).catch(e=>{cqLockPending=false;diag.last="Tab lock: "+(e?.message||"failed");paintDiag()});
+   return;
+ }
+ const now=Date.now(),old=cqReadLease();
+ if(old?.id===cqTabId||!old||old.until<now){
+   try{localStorage.setItem(cqLeaseKey(),JSON.stringify({id:cqTabId,until:now+9000}));cqTabOwner=cqReadLease()?.id===cqTabId}catch{cqTabOwner=false}
+ }else cqTabOwner=false;
+ if(!cqTabOwner){clearTimeout(window.__cqFast);window.__cqFast=null}
+ cqActivatePoller();
+}
+function cqStartLease(){if(cqTabLeaseTimer)return;cqLeaseTick();cqTabLeaseTimer=setInterval(cqLeaseTick,2000)}
+function cqStopLease(){
+ clearInterval(cqTabLeaseTimer);cqTabLeaseTimer=null;
+ cqLockGeneration++;
+ if(cqLockRelease)cqLockRelease();
+ if(!cqWebLocks&&cqOwnPoller())try{localStorage.removeItem(cqLeaseKey())}catch{}
+ cqLosePoller();
+}
+window.addEventListener("pagehide",cqStopLease);
+window.addEventListener("pageshow",()=>{if(activeLoop&&session.active)cqStartLease()});
+window.addEventListener("storage",e=>{if(!cqWebLocks&&e.key===cqLeaseKey())cqLeaseTick()});
+async function torn(p){if(tornInFlight.has(p))return tornInFlight.get(p);if(tornCooldown(p)>0){let e=Error("Torn API cooling down after rate limit");e.code="5";e.endpoint=p;e.cooldown=true;throw e}const pending=(async()=>{let pk=PDAK!=="###PDA-APIKEY###"?PDAK:"",k=pk||storeGet(KS);diag.key=!!k;if(!k)throw Error("Enter a Limited API key");let j=await request(A+p,{headers:{Authorization:"ApiKey "+k}});if(j==null)throw Error("Empty Torn API response: "+p);if(typeof j==="string")throw Error("Unexpected Torn response: "+j.slice(0,80));if(j?.error){let e=Error(j.error?.error||j.error?.message||"Torn API error");e.code=String(j.error?.code??"");e.endpoint=p;if(e.code==="5"){const prior=tornBackoff.get("*")?.failures||0;const failures=Math.min(prior+1,6);tornBackoff.set("*",{failures,until:Date.now()+Math.min(120000,5000*2**(failures-1))+Math.floor(Math.random()*1000)})}throw e}tornBackoff.delete("*");tornBackoff.delete(p);return j})();tornInFlight.set(p,pending);try{return await pending}finally{tornInFlight.delete(p)}}
 async function db(path,opt={}){return request(U+"/rest/v1/"+path,{method:opt.method||"GET",headers:{apikey:K,Authorization:"Bearer "+K,"Content-Type":"application/json",Prefer:opt.prefer||"return=minimal",...(opt.headers||{})},body:opt.body})}async function rpc(fn,p){return db("rpc/"+fn,{method:"POST",body:JSON.stringify(p),prefer:"return=representation"})}
 function errCode(e){let m=String(e?.message||"");return String(e?.code||(/incorrect id[- ]entity relation/i.test(m)?"7":/too many requests/i.test(m)?"429":""))}
-async function reportError(context,e,endpoint=""){try{let code=errCode(e),message=String(e?.message||e||"Unknown error").slice(0,240),sig=context+"|"+code+"|"+message,now=Date.now();if(now-(errorSent.get(sig)||0)<60000)return;errorSent.set(sig,now);await rpc("chain_report_error",{p_session:S,p_player_id:me?.id||null,p_version:VERSION,p_context:context,p_code:code||null,p_message:message,p_endpoint:endpoint||e?.endpoint||null,p_platform:typeof PDA_httpGet==="function"?"PDA":"Userscript"})}catch{}}
+async function reportError(context,e,endpoint=""){if(e?.cooldown)return;try{let code=errCode(e),message=String(e?.message||e||"Unknown error").slice(0,240),sig=context+"|"+code+"|"+message,now=Date.now();if(now-(errorSent.get(sig)||0)<60000)return;errorSent.set(sig,now);await rpc("chain_report_error",{p_session:S,p_player_id:me?.id||null,p_version:VERSION,p_context:context,p_code:code||null,p_message:message,p_endpoint:endpoint||e?.endpoint||null,p_platform:typeof PDA_httpGet==="function"?"PDA":"Userscript"})}catch{}}
 function factionPermissionError(e){return errCode(e)==="7"||/incorrect id[- ]entity relation/i.test(String(e?.message||""))}
 async function selectFactionSession(){let j=await torn("/user/faction"),f=j?.faction??j, fid=+(f?.id??f?.faction_id??j?.faction_id??0);if(!fid)throw Error("Could not identify your Torn faction");factionId=fid;let s=await rpc("chain_open_faction",{p_faction_id:fid});if(!s)throw Error("Faction "+fid+" is not licensed for Cloudy's Chain Manager. Contact CloudyMuffin440 [4315564] on Torn.");S=String(s);session={session_id:S,active:false,leader_id:null,leader_name:null,trigger_seconds:240,paused:false,manual_hit_player_id:null,manual_hit_at:null,leader_heartbeat_at:null,chain_timer_seconds:null,chain_timer_synced_at:null,chain_count:0,chain_end_at:null,chain_max:0,chain_torn_timestamp:null,chain_cooldown_at:null};q=[];return fid}
 async function probeFactionApi(){try{await torn("/faction/attacks?limit=1&sort=DESC");canLead=true;return true}catch(e){if(factionPermissionError(e)){canLead=false;await reportError("Faction API permission",e,"/faction/attacks");return false}await reportError("Faction API probe",e,"/faction/attacks");return true}}
@@ -55,36 +119,99 @@ function tornNow(){let w=typeof unsafeWindow!=="undefined"?unsafeWindow:window;t
 function localClock(){let snap=+session.chain_torn_timestamp||0;if(optimisticEndAt&&snap>optimisticSnapshotTs){optimisticEndAt=0;optimisticSnapshotTs=0}count=+session.chain_count||0;if(optimisticEndAt&&snap<=optimisticSnapshotTs){secs=Math.max(0,Math.ceil((optimisticEndAt-tornNow())/1000));return}let end=+session.chain_end_at||0;if(count<=0||end<=0){secs=null;return}secs=Math.ceil((end*1000-tornNow())/1000)}
 async function syncChainSnapshot(){let sent=Date.now(),j=await torn("/faction?selections=chain,timestamp"),recv=Date.now(),c=j.chain||{},ts=+(j.timestamp??0),ct=+(c.current??0),cm=+(c.max??c.maximum??0),end=+(c.end??0),cool=+(c.cooldown??0);if(!Number.isFinite(ts)||ts<=0)throw Error("Invalid Torn chain timestamp");if(!Number.isFinite(ct)||ct<0||!Number.isFinite(cm)||cm<0||!Number.isFinite(end)||end<0||!Number.isFinite(cool)||cool<0)throw Error("Invalid Torn chain snapshot");let tms=ts<1e12?ts*1000:ts;tornClockOffset=tms-((sent+recv)/2);lastTornClockSync=recv;lastChainSnapshotPoll=recv;let applied=await rpc("chain_apply_snapshot",{p_session:S,p_torn_timestamp:Math.floor(tms/1000),p_current:ct,p_max:cm,p_end:end,p_cooldown:cool});session.chain_torn_timestamp=Math.floor(tms/1000);session.chain_count=ct;session.chain_max=cm;session.chain_end_at=end;session.chain_cooldown_at=cool;session.chain_timer_seconds=ct>0&&end>0?Math.max(0,Math.min(600,end-Math.floor(tms/1000))):0;session.chain_timer_synced_at=new Date().toISOString();localClock();render();return {timestamp:Math.floor(tms/1000),current:ct,max:cm,end,cooldown:cool,applied}}
 async function load(){
+ const serial=++rtLoadSerial,revision=rtStateRevision,scope=S;
  const getRows=async path=>{
-   let r=await db(path,{method:"GET"});
-   if(r===undefined){
-     await new Promise(ok=>setTimeout(ok,250));
-     r=await db(path,{method:"GET"})
-   }
-   return r
+  let r=await db(path,{method:"GET"});
+  if(r===undefined){
+   await new Promise(ok=>setTimeout(ok,250));
+   r=await db(path,{method:"GET"});
+  }
+  return r;
  };
- let nq=await getRows("chain_queue?session_id=eq."+S+"&select=*&order=position.asc,joined_at.asc");
- if(!Array.isArray(nq)){
-   lastSharedLoad=Date.now();diag.queue=true;localClock();render();return false
+ try{
+  const nq=await getRows("chain_queue?session_id=eq."+encodeURIComponent(S)+"&select=*&order=position.asc,joined_at.asc");
+  if(!Array.isArray(nq))throw Error("Invalid queue response");
+  const ns=await getRows("chain_sessions?session_id=eq."+encodeURIComponent(S)+"&select=*");
+  if(!Array.isArray(ns)||ns.length!==1)throw Error("Invalid or missing session response");
+  // Ignore older requests and snapshots overtaken by Realtime events.
+  if(serial!==rtLoadSerial||revision!==rtStateRevision||scope!==S)return false;
+  q=nq;session=ns[0];
+  lastSharedLoad=Date.now();diag.queue=true;
+  if(activeLoop&&session.active===false){stopActiveLoop();return true}
+  localClock();render();return true;
+ }catch(e){
+  if(serial!==rtLoadSerial||scope!==S)return false;
+  diag.queue=false;diag.last="Queue sync: "+(e?.message||"failed");
+  msg("Queue sync failed — retaining last confirmed data");
+  localClock();render();return false;
  }
- let ns=await getRows("chain_sessions?session_id=eq."+S+"&select=*");
- if(!Array.isArray(ns)){
-   lastSharedLoad=Date.now();diag.queue=true;localClock();render();return false
- }
- q=nq;if(ns[0])session=ns[0];if(activeLoop&&session.active===false)activeLoop=false;
- lastSharedLoad=Date.now();diag.queue=true;localClock();render();return true
 }
 async function checkVersion(){try{let r=await db("chain_client_config?config_id=eq.main&select=latest_version,minimum_version",{method:"GET"});if(Array.isArray(r)&&r[0]){versionState.latest=String(r[0].latest_version||VERSION);versionState.minimum=String(r[0].minimum_version||VERSION);versionState.blocked=vercmp(VERSION,versionState.minimum)<0;versionState.update=vercmp(VERSION,versionState.latest)<0;versionState.checked=true}else versionState.checked=false}catch(e){versionState.checked=false;versionState.blocked=false}render();return !versionState.blocked}
 function versionGuard(){if(!versionState.blocked)return true;msg("UPDATE REQUIRED — v"+VERSION+" is below minimum v"+versionState.minimum);alert("Cloudy\'s Chain Manager v"+VERSION+" is no longer supported. Update to v"+versionState.latest+" before using the queue.");return false}
 async function control(action,value=null){if(!leader())return false;let r=await rpc("chain_session_control",{p_session:S,p_leader_id:me.id,p_action:action,p_value:value==null?null:String(value)});if(!rtJoined)await load();return r}
 function leader(){return !!me&&+session.leader_id===me.id}
-function rtStop(){clearTimeout(window.__cqRtReconnect);clearInterval(rtHeartbeat);rtHeartbeat=null;rtJoined=false;if(rtSocket){try{rtSocket.onclose=null;rtSocket.close()}catch{}}rtSocket=null}
-function rtSend(topic,event,payload){if(rtSocket&&rtSocket.readyState===1)try{let ref=String(++rtRef),m={topic,event,payload,ref};if(event==="phx_join")m.join_ref=ref;rtSocket.send(JSON.stringify(m))}catch{}}
-function rtApplyQueue(d){let typ=String(d?.type||d?.eventType||"").toUpperCase(),r=d?.record||d?.new||{},o=d?.old_record||d?.old||{},sid=String(r.session_id||o.session_id||"");if(sid!==S)return;let id=+(r.player_id||o.player_id||0);if(!id)return;if(typ==="DELETE")q=q.filter(x=>+x.player_id!==id);else{let i=q.findIndex(x=>+x.player_id===id);if(i>=0)q[i]={...q[i],...r};else q.push(r)}q.sort((a,b)=>(+a.position||999999)-(+b.position||999999)||String(a.joined_at||"").localeCompare(String(b.joined_at||"")));lastSharedLoad=Date.now();diag.queue=true;render()}
-function rtApplySession(d){let r=d?.record||d?.new||{};if(String(r.session_id||"")!==S)return;let wasLeader=leader();session={...session,...r};if(!wasLeader&&leader())lastChainSnapshotPoll=0;lastSharedLoad=Date.now();localClock();render();if(session.active===false)stopActiveLoop()}
-function startRealtime(){if(rtSocket||!activeLoop||!session.active||S==="pending")return;try{let ws=U.replace(/^https:/,"wss:")+"/realtime/v1/websocket?apikey="+encodeURIComponent(K)+"&vsn=1.0.0",topic="realtime:chain-manager:"+S;rtJoined=false;rtSocket=new WebSocket(ws);rtSocket.onopen=()=>{rtSend(topic,"phx_join",{config:{broadcast:{ack:false,self:false},presence:{enabled:false},postgres_changes:[{event:"*",schema:"public",table:"chain_queue",filter:"session_id=eq."+S},{event:"UPDATE",schema:"public",table:"chain_sessions",filter:"session_id=eq."+S}]}});clearInterval(rtHeartbeat);rtHeartbeat=setInterval(()=>rtSend("phoenix","heartbeat",{}),25000)};rtSocket.onmessage=e=>{try{let m=JSON.parse(e.data);if(m?.event==="phx_reply"){if(m?.payload?.status==="ok")rtJoined=true;else{rtJoined=false;try{rtSocket.close()}catch{}}return}if(m?.event==="phx_error"){rtJoined=false;try{rtSocket.close()}catch{};return}if(m?.event!=="postgres_changes")return;let d=m?.payload?.data||m?.payload||{};if(d.table==="chain_queue")rtApplyQueue(d);else if(d.table==="chain_sessions")rtApplySession(d)}catch{}};rtSocket.onerror=()=>{rtJoined=false};rtSocket.onclose=()=>{rtJoined=false;clearInterval(rtHeartbeat);rtHeartbeat=null;rtSocket=null;if(activeLoop&&session.active){clearTimeout(window.__cqRtReconnect);window.__cqRtReconnect=setTimeout(startRealtime,5000)}}}catch{rtJoined=false;rtSocket=null}}
-function stopActiveLoop(){activeLoop=false;clearTimeout(window.__cqFast);clearInterval(window.__cqClock);rtStop();safeText("#st","IDLE");localClock();render();clearTimeout(window.__cqIdle);if(S!=="pending")window.__cqIdle=setTimeout(checkForActiveSession,300000)}
-async function startActiveLoop(){if(activeLoop||!session.active)return;activeLoop=true;clearTimeout(window.__cqIdle);startRealtime();await probeFactionApi();try{await syncTornClock()}catch(e){msg("Torn clock sync: "+(e?.message||"failed"))}if(q.some(x=>+x.player_id===me?.id))try{await rpc("chain_capability",{p_session:S,p_player_id:me.id,p_can_lead:canLead});await load()}catch(e){await reportError("Capability sync",e,"chain_capability")}if(leader())try{await syncChainSnapshot()}catch(e){await reportError("Chain snapshot",e,"/faction?selections=chain,timestamp");localClock()}clearTimeout(window.__cqFast);clearInterval(window.__cqClock);await pollFast();window.__cqClock=setInterval(()=>{localClock();render()},250)}
+function rtStop(){
+ rtJoinRef=null;rtJoinTopic=null;
+ clearTimeout(window.__cqRtReconnect);window.__cqRtReconnect=null;
+ clearInterval(rtHeartbeat);rtHeartbeat=null;rtJoined=false;rtReconnectAttempt=0;
+ const socket=rtSocket;rtSocket=null;
+ if(socket){try{socket.onclose=null;socket.close()}catch{}}
+}
+function scheduleRealtimeReconnect(){
+ if(!activeLoop||!session.active||S==="pending")return;
+ clearTimeout(window.__cqRtReconnect);
+ const base=Math.min(60000,2000*Math.pow(2,Math.min(rtReconnectAttempt,5)));
+ const delay=Math.round(base*(0.8+Math.random()*0.4));
+ rtReconnectAttempt++;
+ window.__cqRtReconnect=setTimeout(()=>{
+  window.__cqRtReconnect=null;
+  if(!rtSocket&&activeLoop&&session.active)startRealtime();
+ },delay);
+}
+function rtSend(topic,event,payload){if(rtSocket&&rtSocket.readyState===1)try{let ref=String(++rtRef),m={topic,event,payload,ref};if(event==="phx_join"){m.join_ref=ref;rtJoinRef=ref;rtJoinTopic=topic}rtSocket.send(JSON.stringify(m));return ref}catch{}return null}
+function rtApplyQueue(d){let typ=String(d?.type||d?.eventType||"").toUpperCase(),r=d?.record||d?.new||{},o=d?.old_record||d?.old||{},sid=String(r.session_id||o.session_id||"");if(sid!==S)return;rtStateRevision++;let id=+(r.player_id||o.player_id||0);if(!id)return;if(typ==="DELETE")q=q.filter(x=>+x.player_id!==id);else{let i=q.findIndex(x=>+x.player_id===id);if(i>=0)q[i]={...q[i],...r};else q.push(r)}q.sort((a,b)=>(+a.position||999999)-(+b.position||999999)||String(a.joined_at||"").localeCompare(String(b.joined_at||"")));lastSharedLoad=Date.now();diag.queue=true;render()}
+function rtApplySession(d){let r=d?.record||d?.new||{};if(String(r.session_id||"")!==S)return;rtStateRevision++;let wasLeader=leader();session={...session,...r};if(!wasLeader&&leader())lastChainSnapshotPoll=0;lastSharedLoad=Date.now();localClock();render();if(session.active===false)stopActiveLoop()}
+function startRealtime(){
+ if(rtSocket||!activeLoop||!session.active||S==="pending")return;
+ try{
+  const ws=U.replace(/^https:/,"wss:")+"/realtime/v1/websocket?apikey="+encodeURIComponent(K)+"&vsn=1.0.0";
+  const topic="realtime:chain-manager:"+S;
+  const socket=new WebSocket(ws);rtSocket=socket;rtJoined=false;rtJoinRef=null;rtJoinTopic=null;
+  socket.onopen=()=>{
+   if(rtSocket!==socket)return;
+   rtSend(topic,"phx_join",{config:{broadcast:{ack:false,self:false},presence:{enabled:false},postgres_changes:[{event:"*",schema:"public",table:"chain_queue",filter:"session_id=eq."+S},{event:"UPDATE",schema:"public",table:"chain_sessions",filter:"session_id=eq."+S}]}});
+   clearInterval(rtHeartbeat);rtHeartbeat=setInterval(()=>rtSend("phoenix","heartbeat",{}),25000);
+  };
+  socket.onmessage=e=>{
+   if(rtSocket!==socket)return;
+   try{
+    const m=JSON.parse(e.data);
+    if(m?.event==="phx_reply"){
+     if(String(m.ref||"")!==String(rtJoinRef||"")||m.topic!==rtJoinTopic)return;
+     if(m?.payload?.status==="ok"){
+      const recovered=!rtJoined;
+      rtJoined=true;rtReconnectAttempt=0;
+      if(recovered)load().catch(err=>{diag.queue=false;msg("Realtime resync failed: "+(err?.message||"failed"))});
+     }else{rtJoined=false;try{socket.close()}catch{}}
+     return;
+    }
+    if(m?.event==="phx_error"){rtJoined=false;try{socket.close()}catch{};return}
+    if(m?.event!=="postgres_changes")return;
+    const d=m?.payload?.data||m?.payload||{};
+    if(d.table==="chain_queue")rtApplyQueue(d);
+    else if(d.table==="chain_sessions")rtApplySession(d);
+   }catch{}
+  };
+  socket.onerror=()=>{if(rtSocket===socket)rtJoined=false};
+  socket.onclose=()=>{
+   if(rtSocket!==socket)return;
+   rtJoined=false;rtJoinRef=null;rtJoinTopic=null;clearInterval(rtHeartbeat);rtHeartbeat=null;rtSocket=null;
+   scheduleRealtimeReconnect();
+  };
+ }catch(e){rtJoined=false;rtSocket=null;scheduleRealtimeReconnect()}
+}
+function stopActiveLoop(){cqStopLease();activeLoop=false;clearTimeout(window.__cqFast);clearInterval(window.__cqClock);rtStop();safeText("#st","IDLE");localClock();render();clearTimeout(window.__cqIdle);if(S!=="pending")window.__cqIdle=setTimeout(checkForActiveSession,300000)}
+async function startActiveLoop(){if(activeLoop||!session.active)return;activeLoop=true;clearTimeout(window.__cqIdle);startRealtime();cqStartLease();if(cqOwnPoller())await probeFactionApi();if(cqOwnPoller())try{await syncTornClock()}catch(e){msg("Torn clock sync: "+(e?.message||"failed"))}if(cqOwnPoller()&&q.some(x=>+x.player_id===me?.id))try{await rpc("chain_capability",{p_session:S,p_player_id:me.id,p_can_lead:canLead});await load()}catch(e){await reportError("Capability sync",e,"chain_capability")}if(cqOwnPoller()&&leader())try{await syncChainSnapshot()}catch(e){await reportError("Chain snapshot",e,"/faction?selections=chain,timestamp");localClock()}clearTimeout(window.__cqFast);clearInterval(window.__cqClock);await pollFast();window.__cqClock=setInterval(()=>{localClock();render()},250)}
 async function setSessionActive(on){if(!me||me.id!==OWNER_ID)return msg("Only Cloudy can start/end the shared session");let ok=await rpc("chain_set_active",{p_session:S,p_player_id:me.id,p_active:!!on});if(!ok)return msg("Session change failed");await load();if(on){await startActiveLoop();msg("Chain Manager session STARTED")}else{stopActiveLoop();msg("Chain Manager session ENDED — clients sleeping")}}
 async function checkForActiveSession(){clearTimeout(window.__cqIdle);if(activeLoop||S==="pending")return;try{let r=await db("chain_sessions?session_id=eq."+S+"&select=active",{method:"GET"});if(Array.isArray(r)&&r[0]?.active){session.active=true;await load();await startActiveLoop();msg("Session is active — LIVE")}}catch{}finally{if(!activeLoop&&S!=="pending")window.__cqIdle=setTimeout(checkForActiveSession,300000)}}
 function restoreIdentity(){try{let x=JSON.parse(storeGet("cq_identity","null"));if(x?.id){me={id:+x.id,name:x.name||"Player"};diag.id=true;return true}}catch{}diag.id=false;return false}
@@ -117,21 +244,86 @@ function installAttackOutcomeWatcher(){
    if(t==="leave"||t==="mug"||t==="hospitalize"||t==="hospitalise")setTimeout(signalAttackOutcome,0)
  },true)
 }
-async function recordAttack(id,name,attackId,ended=null){let changed=await rpc("chain_record_attack",{p_session:S,p_player_id:+id,p_player_name:name||"Player",p_attack_id:attackId,p_ended_at:ended?+ended:null});if(changed)msg((name||"Player")+" hit → synced");return changed}
+async function recordAttack(id,name,attackId,ended=null){if(!activeLoop||!cqOwnPoller())return false;let changed=await rpc("chain_record_attack",{p_session:S,p_player_id:+id,p_player_name:name||"Player",p_attack_id:attackId,p_ended_at:ended?+ended:null});if(changed)msg((name||"Player")+" hit → synced");return changed}
 async function bottom(id,name,attackId=null,ended=null){return recordAttack(id,name,attackId,ended)}
 function rows(j){if(!j||typeof j!=="object")return [];let v=j.attacks??j;return Array.isArray(v)?v:Object.values(v||{}).filter(x=>x&&typeof x==="object")}
 function good(a){let id=+(a.attacker?.id||a.attacker_id||0),r=a.respect_gain??a.respect;if(!id)return false;if(r!=null)return +r>0;return !/lost|stalemate|escape/i.test(a.result||"")}
 async function syncTimer(){return syncChainSnapshot()}
 async function pushEnergy(){let p=myPos(),gap=p>0&&p<=5?60000:300000;if(!me||!q.some(x=>+x.player_id===me.id)||Date.now()-lastEnergyPush<gap)return;try{let j=await torn("/user/bars"),b=j.bars||j,e=b.energy||j.energy||j;if(e&&e.current!=null){await rpc("chain_energy",{p_session:S,p_player_id:me.id,p_current:+e.current,p_max:+(e.maximum??e.max??e.current)});lastEnergyPush=Date.now();diag.energy=true}else msg("Energy unavailable from Torn API") }catch(err){diag.energy=false;msg("Energy sync: "+(err?.message||"failed"))}}
 function mine(a){return +(a.attacker?.id||a.attacker_id||0)===me?.id}
-async function pollMine(){if(!me||!q.some(x=>+x.player_id===me.id)||Date.now()-lastMinePoll<6000)return;lastMinePoll=Date.now();let z=rows(await torn("/user/attacks?limit=10&sort=DESC")).filter(a=>good(a)&&mine(a)).sort((a,b)=>+(b.ended||b.timestamp||0)-+(a.ended||a.timestamp||0)),aid=a=>String(a.id||a.attack_id||a.code||a.ended);if(!z.length)return;if(myAttackCursor==null){myAttackCursor=aid(z[0]);return}let ix=z.findIndex(a=>aid(a)===String(myAttackCursor));if(ix>0){for(let x of z.slice(0,ix).reverse())await bottom(me.id,me.name,aid(x),+(x.ended||x.timestamp||0)||null);myAttackCursor=aid(z[0]);lastEnergyPush=0;await pushEnergy()}else if(ix<0)myAttackCursor=aid(z[0])}
-async function pollLeader(){if(!leader()||Date.now()-lastLeaderPoll<4000)return;lastLeaderPoll=Date.now();let z=rows(await torn("/faction/attacks?limit=100&sort=DESC")).filter(good).sort((a,b)=>+(b.ended||b.timestamp||0)-+(a.ended||a.timestamp||0)),aid=a=>String(a.id||a.attack_id||a.code||a.ended),cursor=session.last_attack_id,hitSeen=false;if(z.length){if(!cursor){await control("cursor",aid(z[0]))}else{let ix=z.findIndex(a=>aid(a)===String(cursor));if(ix>0){for(let x of z.slice(0,ix).reverse()){hitSeen=true;let pid=+(x.attacker?.id||x.attacker_id);await bottom(pid,x.attacker?.name||x.attacker_name,aid(x),+(x.ended||x.timestamp||0)||null)}}else if(ix<0){await control("cursor",aid(z[0]));hitSeen=true;msg("Attack cursor resynced")}}}if(hitSeen)lastChainSnapshotPoll=0;if(Date.now()-lastHeartbeat>=15000){await control("heartbeat");lastHeartbeat=Date.now()}}
+function cqAttackId(a){return String(a.id||a.attack_id||a.code||a.ended)}
+function cqAttackTime(a){return +(a.ended||a.timestamp||0)}
+async function cqAttackBackfill(scope,cursor,limit){
+ // Torn API v2 idFilter makes from/to and sort operate on attack IDs.
+ // Unlike timestamp pagination, it can cross a burst of >100 hits in one second.
+ const cursorId=Number(cursor);
+ if(!Number.isSafeInteger(cursorId)||cursorId<=0)return {found:false,first:null,records:[]};
+ const seen=new Map();let to=null,first=null,found=false;
+ for(let page=0;page<12;page++){
+  if(!cqOwnPoller()||!activeLoop)return {found:false,first,records:[]};
+  const path="/"+scope+"/attacks?limit="+limit+"&sort=DESC&filters=idFilter"+(to===null?"":"&to="+to);
+  const raw=rows(await torn(path));
+  if(!raw.length)break;
+  if(first===null)first=cqAttackId(raw[0]);
+  let oldest=null;
+  for(const x of raw){
+   const id=Number(cqAttackId(x));
+   if(!Number.isSafeInteger(id)||id<=0)return {found:false,first,records:[]};
+   if(oldest===null||id<oldest)oldest=id;
+   if(id===cursorId){found=true;break}
+   if(id>cursorId)seen.set(String(id),x);
+  }
+  if(found||raw.length<limit||oldest===null||oldest<=1)break;
+  const next=oldest-1;
+  if(to!==null&&next>=to)break;
+  to=next;
+ }
+ if(!found)return {found:false,first,records:[]};
+ return {found:true,first,records:[...seen.values()].filter(good).sort((x,y)=>cqAttackTime(x)-cqAttackTime(y)||Number(cqAttackId(x))-Number(cqAttackId(y)))};
+}
+async function pollMine(){
+ if(!me||!q.some(x=>+x.player_id===me.id)||Date.now()-lastMinePoll<(session.leader_id&&Date.now()-Date.parse(session.leader_heartbeat_at||0)<30000?15000:6000))return;
+ lastMinePoll=Date.now();
+ const initial=rows(await torn("/user/attacks?limit=100&sort=DESC"));
+ if(!initial.length)return;
+ if(myAttackCursor==null){myAttackCursor=cqAttackId(initial[0]);return}
+ const result=await cqAttackBackfill("user",myAttackCursor,100);
+ if(!result.found){cqAttackGap=true;msg("PERSONAL ATTACK GAP — history incomplete; cursor preserved");diag.torn=false;paintDiag();return}
+ const hits=result.records.filter(mine);
+ for(const x of hits){if(!cqOwnPoller()||!activeLoop)return;await bottom(me.id,me.name,cqAttackId(x),cqAttackTime(x)||null)}
+ myAttackCursor=result.first;
+ if(hits.length){lastEnergyPush=0;await pushEnergy()}
+}
+async function pollLeader(){
+ if(!leader()||Date.now()-lastLeaderPoll<4000)return;
+ lastLeaderPoll=Date.now();
+ const initial=rows(await torn("/faction/attacks?limit=100&sort=DESC"));
+ if(!initial.length)return;
+ const cursor=session.last_attack_id;
+ if(!cursor){if(cqOwnPoller()&&activeLoop)await control("cursor",cqAttackId(initial[0]))}
+ else{
+  const result=await cqAttackBackfill("faction",cursor,100);
+  if(!result.found){cqAttackGap=true;msg("FACTION ATTACK GAP — history incomplete; cursor preserved");diag.torn=false;paintDiag();return}
+  for(const x of result.records){
+   if(!cqOwnPoller()||!activeLoop||!leader())return;
+   const pid=+(x.attacker?.id||x.attacker_id);
+   await bottom(pid,x.attacker?.name||x.attacker_name,cqAttackId(x),cqAttackTime(x)||null)
+  }
+  if(result.records.length)lastChainSnapshotPoll=0;
+ }
+ if(cqOwnPoller()&&activeLoop&&Date.now()-lastHeartbeat>=15000){await control("heartbeat");lastHeartbeat=Date.now()}
+}
 async function maybeFailover(){if(leader()||!me||Date.now()-lastFailoverCheck<15000)return;let mine=q.find(x=>+x.player_id===me.id);if(!mine?.can_lead)return;lastFailoverCheck=Date.now();let t=Date.parse(session.leader_heartbeat_at||session.updated_at||0);if(session.leader_id&&Number.isFinite(t)&&Date.now()-t<45000)return;try{let won=await rpc("chain_claim_stale_lead",{p_session:S,p_player_id:me.id});if(won){await load();if(leader()){lastChainSnapshotPoll=0;await syncChainSnapshot();msg("Leader failover — you are Chain Lead")}}}catch(e){await reportError("Leader failover",e,"chain_claim_stale_lead")}}
 function myPos(){return me?q.findIndex(x=>+x.player_id===me.id)+1:0}
 function mineDelay(){let p=myPos();return leader()||p===1?2000:p>0&&p<=5?2000:p>0&&p<=20?5000:6000}
 function sharedDelay(){let p=myPos();return leader()||p===1?2000:p>0&&p<=5?3000:p>0&&p<=20?5000:6000}
+let cqPollInFlight=false,cqAttackGap=false;
 async function pollFast(){
- if(!activeLoop||!session.active){activeLoop=false;safeText("#st","IDLE");render();return}
+ window.__cqFast=null;
+ if(cqPollInFlight)return;
+ cqPollInFlight=true;
+ if(!activeLoop||!session.active){cqPollInFlight=false;activeLoop=false;safeText("#st","IDLE");render();return}
+ if(!cqOwnPoller()){cqPollInFlight=false;safeText("#st","MIRROR");localClock();render();return}
  try{
    let fp=myPos(),sharedFallback=!rtJoined?30000:(leader()||fp===1?60000:fp>1&&fp<=5?120000:300000);
    if(Date.now()-lastSharedLoad>=sharedFallback)try{await load()}catch(e){await reportError("Queue sync",e,"Supabase load");msg("Queue sync: "+(e?.message||"failed"))}
@@ -141,20 +333,19 @@ async function pollFast(){
    try{await pollMine()}catch(e){await reportError("Attack sync",e,"/user/attacks");msg("Attack sync: "+(e?.message||"failed"))}
    try{await maybeFailover()}catch(e){await reportError("Leader failover loop",e,"chain_claim_stale_lead")}
    if(leader())try{await pollLeader()}catch(e){await reportError("Leader sync",e,"/faction/attacks");if(factionPermissionError(e)){canLead=false;try{await rpc("chain_capability",{p_session:S,p_player_id:me.id,p_can_lead:false});await load()}catch{}msg("Faction API permission required — Chain Lead reassigned if possible")}else msg("Leader sync: "+(e?.message||"failed"))}
-   localClock();apiFails=0;diag.torn=true;safeText("#st","LIVE");render()
+   localClock();apiFails=0;diag.torn=!cqAttackGap;safeText("#st",cqAttackGap?"ATTACK GAP":"LIVE");render()
  }catch(e){
    apiFails++;msg("Core loop: "+(e?.message||"failed"));localClock();render()
  }finally{
-   clearTimeout(window.__cqFast);if(activeLoop&&session.active)window.__cqFast=setTimeout(pollFast,mineDelay())
+   cqPollInFlight=false;clearTimeout(window.__cqFast);if(activeLoop&&session.active&&cqOwnPoller())window.__cqFast=setTimeout(pollFast,mineDelay())
  }
 }
 async function connect(){try{cq("#st").textContent="CONNECTING";if(!(await checkVersion()))throw Error("Update required — install v"+versionState.latest);let pk=PDAK!=="###PDA-APIKEY###"?PDAK:"",k=pk||(cq("#ck")?.value||"").trim()||storeGet(KS);diag.key=!!k;if(!k)throw Error("Enter a Limited API key");if(!pk)storeSet(KS,k);let j=await torn("/user/basic"),u=j.profile||j;diag.torn=true;me={id:+(u.id||u.player_id),name:u.name};storeSet("cq_identity",JSON.stringify(me));if(!me.id)throw Error("Could not identify user");await selectFactionSession();await load();if(session.active){await startActiveLoop();msg(q.some(x=>+x.player_id===me.id)?"Connected — still in queue":"Connected — LIVE")}else{stopActiveLoop();msg(me.id===OWNER_ID?"IDLE — press START SESSION when chaining/war starts":"IDLE — waiting for Cloudy to start a session");clearTimeout(window.__cqIdle);window.__cqIdle=setTimeout(checkForActiveSession,300000)}}catch(e){diag.torn=false;safeText("#st","ERROR");msg(e.message)}}
 function render(){if(!$("#cq")){mount();return;}paintDiag();let ctl=cq(".sessionCtl");if(ctl)ctl.style.display=me?.id===OWNER_ID?"flex":"none";let sb=cq("#startsession"),eb=cq("#endsession");if(sb)sb.disabled=!!session.active;if(eb)eb.disabled=!session.active;if(!session.active)safeText("#st","IDLE");let n=q[0],newNext=n?+n.player_id:null,queueSig=q.map(x=>x.player_id).join(",");
 if(lastQueueSig!==null&&queueSig!==lastQueueSig){
-  if(newNext===me?.id&&lastNextId!==me.id)tone("turn");
-  else tone("hit");
+  if(newNext!==me?.id)tone("hit");
 }
-lastQueueSig=queueSig;lastNextId=newNext;let tr=+session.trigger_seconds||240,forced=!!n&&+session.manual_hit_player_id===+n.player_id&&session.manual_hit_at,hit=!!n&&!session.paused&&((count>0&&secs>0&&secs<=tr)||forced);safeText(".tm",fmt(secs));safeText(".chain",count>0?(count+"/"+(+session.chain_max||"?")):"—");safeText(".nx",n?n.player_name:"Nobody queued");safeText(".call",session.paused?"⏸ Queue paused":!n?"Waiting for players":count<=0&&!forced?"Waiting for chain":hit?(me&&+n.player_id===me.id?"🔥 YOU — HIT NOW":"🔥 "+n.player_name+" — HIT NOW"):"Next hit @ "+fmt(tr));let hero=cq(".hero");if(hero)hero.classList.toggle("hit",hit);let iq=me&&q.some(x=>+x.player_id===me.id),vb=versionState.blocked;cq("#join").disabled=vb||!me||iq;cq("#leave").disabled=!iq;let pace=Math.max(0,300-tr),eta=i=>i===0?"NOW":"~"+Math.ceil(i*pace/60)+"m",known=q.filter(x=>x.energy_current!=null),hits=known.reduce((s,x)=>s+Math.floor(+x.energy_current/25),0),es=$("#cq .energySummary");if(es)es.textContent="⚡ Queue energy: "+known.reduce((s,x)=>s+(+x.energy_current||0),0)+" E • "+hits+" hits available"+(known.length<q.length?" • "+(q.length-known.length)+" unknown":"");cq(".list").innerHTML=q.length?q.map((x,i)=>`<li><span>${i+1}</span><b>${String(x.player_name).replace(/[<>]/g,"")}</b><span class="tag">${(x.energy_current==null?"E ? • ? hits":"E "+x.energy_current+"/"+(x.energy_max||"?")+" • "+Math.floor(+x.energy_current/25)+" hits")+" • "+(me&&+x.player_id===me.id?"YOU • "+eta(i):i===0?"NEXT • NOW":eta(i))}</span></li>`).join(""):"<li><span>—</span><span>No active queue</span><span></span></li>";let esc=s=>String(s||"—").replace(/[<>]/g,""),cp=me?q.findIndex(x=>+x.player_id===me.id):-1,compact=cq(".compactRoster");if(compact){let labels=["NEXT","ON DECK","IN HOLE"],rows3=[0,1,2].map((i)=>'<div class="cr"><b>'+labels[i]+'</b><span>'+(q[i]?esc(q[i].player_name):"—")+'</span></div>').join(""),myEta=cp<0?"Not in queue":cp===0?"YOU: NEXT • NOW":"YOU: #"+(cp+1)+" • "+eta(cp);compact.innerHTML=rows3+'<div class="you">'+myEta+'</div>'}safeText(".lead",session.leader_name?"👑 Leader: "+session.leader_name:"⚠ No chain leader");cq(".admin").classList.toggle("on",leader());let targetSel=cq("#target"),selectedTarget=targetSel?.value||"";if(targetSel){let targetSig=q.map(x=>x.player_id+":"+x.player_name).join("|");if(targetSel.dataset.sig!==targetSig){targetSel.innerHTML=q.map(x=>`<option value="${+x.player_id}">${String(x.player_name).replace(/[<>]/g,"")}</option>`).join("");targetSel.dataset.sig=targetSig;if(selectedTarget&&q.some(x=>String(x.player_id)===selectedTarget))targetSel.value=selectedTarget}}cq("#tempo").value=String(tr);safeText("#pause",session.paused?"Resume":"Pause");cq("#takelead").disabled=!me||!iq||leader()||!canLead;let meta=$("#cq .panel>.meta");if(meta)meta.textContent="Chain: "+count+(me?" • "+me.name:"");let pos=me?q.findIndex(x=>+x.player_id===me.id)+1:0,b=cq(".bi");if(b){if(n&&me&&+n.player_id===me.id&&hit)b.textContent="🔥";else if(count>0&&secs>0&&secs<=30)b.textContent="⚠️";else if(pos)b.textContent=String(pos);else b.textContent="🔗"}if(count>0&&secs>0&&secs<=60&&!session.paused&&!hit)safeText(".call","⚠️ "+fmt(secs)+" — chain getting low")}
+lastQueueSig=queueSig;lastNextId=newNext;cqAlertTick();let tr=+session.trigger_seconds||240,forced=!!n&&+session.manual_hit_player_id===+n.player_id&&session.manual_hit_at,hit=!!n&&!session.paused&&((count>0&&secs>0&&secs<=tr)||forced);safeText(".tm",fmt(secs));safeText(".chain",count>0?(count+"/"+(+session.chain_max||"?")):"—");safeText(".nx",n?n.player_name:"Nobody queued");safeText(".call",session.paused?"⏸ Queue paused":!n?"Waiting for players":count<=0&&!forced?"Waiting for chain":hit?(me&&+n.player_id===me.id?"🔥 YOU — HIT NOW":"🔥 "+n.player_name+" — HIT NOW"):"Next hit @ "+fmt(tr));let hero=cq(".hero");if(hero)hero.classList.toggle("hit",hit);let iq=me&&q.some(x=>+x.player_id===me.id),vb=versionState.blocked;cq("#join").disabled=vb||!me||iq;cq("#leave").disabled=!iq;let pace=Math.max(0,300-tr),eta=i=>i===0?"NOW":"~"+Math.ceil(i*pace/60)+"m",known=q.filter(x=>x.energy_current!=null),hits=known.reduce((s,x)=>s+Math.floor(+x.energy_current/25),0),es=$("#cq .energySummary");if(es)es.textContent="⚡ Queue energy: "+known.reduce((s,x)=>s+(+x.energy_current||0),0)+" E • "+hits+" hits available"+(known.length<q.length?" • "+(q.length-known.length)+" unknown":"");cq(".list").innerHTML=q.length?q.map((x,i)=>`<li><span>${i+1}</span><b>${String(x.player_name).replace(/[<>]/g,"")}</b><span class="tag">${(x.energy_current==null?"E ? • ? hits":"E "+x.energy_current+"/"+(x.energy_max||"?")+" • "+Math.floor(+x.energy_current/25)+" hits")+" • "+(me&&+x.player_id===me.id?"YOU • "+eta(i):i===0?"NEXT • NOW":eta(i))}</span></li>`).join(""):"<li><span>—</span><span>No active queue</span><span></span></li>";let esc=s=>String(s||"—").replace(/[<>]/g,""),cp=me?q.findIndex(x=>+x.player_id===me.id):-1,compact=cq(".compactRoster");if(compact){let labels=["NEXT","ON DECK","IN HOLE"],rows3=[0,1,2].map((i)=>'<div class="cr"><b>'+labels[i]+'</b><span>'+(q[i]?esc(q[i].player_name):"—")+'</span></div>').join(""),myEta=cp<0?"Not in queue":cp===0?"YOU: NEXT • NOW":"YOU: #"+(cp+1)+" • "+eta(cp);compact.innerHTML=rows3+'<div class="you">'+myEta+'</div>'}safeText(".lead",session.leader_name?"👑 Leader: "+session.leader_name:"⚠ No chain leader");cq(".admin").classList.toggle("on",leader());let targetSel=cq("#target"),selectedTarget=targetSel?.value||"";if(targetSel){let targetSig=q.map(x=>x.player_id+":"+x.player_name).join("|");if(targetSel.dataset.sig!==targetSig){targetSel.innerHTML=q.map(x=>`<option value="${+x.player_id}">${String(x.player_name).replace(/[<>]/g,"")}</option>`).join("");targetSel.dataset.sig=targetSig;if(selectedTarget&&q.some(x=>String(x.player_id)===selectedTarget))targetSel.value=selectedTarget}}cq("#tempo").value=String(tr);safeText("#pause",session.paused?"Resume":"Pause");cq("#takelead").disabled=!me||!iq||leader()||!canLead;let meta=$("#cq .panel>.meta");if(meta)meta.textContent="Chain: "+count+(me?" • "+me.name:"");let pos=me?q.findIndex(x=>+x.player_id===me.id)+1:0,b=cq(".bi");if(b){if(n&&me&&+n.player_id===me.id&&hit)b.textContent="🔥";else if(count>0&&secs>0&&secs<=30)b.textContent="⚠️";else if(pos)b.textContent=String(pos);else b.textContent="🔗"}if(count>0&&secs>0&&secs<=60&&!session.paused&&!hit)safeText(".call","⚠️ "+fmt(secs)+" — chain getting low")}
 window.addEventListener("error",e=>{let m=e.message||"error";if(/ResizeObserver loop/i.test(m))return;diag.last="JS: "+m;paintDiag()});window.addEventListener("unhandledrejection",e=>{diag.last="Promise: "+(e.reason?.message||e.reason||"error");paintDiag()});new MutationObserver(()=>{if(!document.querySelector("#cq")&&document.body){mount();render()}}).observe(document.documentElement,{childList:true,subtree:true});installAttackOutcomeWatcher();mount();
 (async function boot(){
  restoreIdentity();
