@@ -1,0 +1,52 @@
+name: OCI A1 Always Free capacity checker
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: oci-a1-capacity
+  cancel-in-progress: false
+jobs:
+  capacity:
+    # Safe by default; enable only after reviewing OCI cost and IAM scope.
+    if: vars.OCI_CAPACITY_CHECK_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OCI CLI
+        run: python -m pip install --user 'oci-cli>=3.50,<4'
+      - name: Configure OCI API credentials
+        env:
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.oci
+          umask 077
+          printf '%s\n' "$OCI_PRIVATE_KEY" > ~/.oci/key.pem
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=${{ secrets.OCI_USER_OCID }}
+          fingerprint=${{ secrets.OCI_API_FINGERPRINT }}
+          tenancy=${{ secrets.OCI_TENANCY_OCID }}
+          region=${{ vars.OCI_REGION }}
+          key_file=$HOME/.oci/key.pem
+          EOF
+      - name: Save SSH public key
+        env:
+          PUBKEY: ${{ vars.OCI_SSH_PUBLIC_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "$PUBKEY" > /tmp/chain-manager-ssh.pub
+      - name: Try provisioning available A1
+        env:
+          OCI_COMPARTMENT_OCID: ${{ vars.OCI_COMPARTMENT_OCID }}
+          OCI_SUBNET_OCID: ${{ vars.OCI_SUBNET_OCID }}
+          OCI_IMAGE_OCID: ${{ vars.OCI_IMAGE_OCID }}
+          OCI_INSTANCE_NAME: chain-manager-core
+          OCI_SSH_PUBLIC_KEY: ${{ vars.OCI_SSH_PUBLIC_KEY }}
+          OCI_SSH_PUBLIC_KEY_FILE: /tmp/chain-manager-ssh.pub
+          ENABLE_LAUNCH: ${{ vars.OCI_ENABLE_LAUNCH }}
+        run: python scripts/oci_a1_capacity.py
