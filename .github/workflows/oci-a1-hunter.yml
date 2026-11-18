@@ -3,10 +3,11 @@ name: OCI Always Free A1 capacity hunter
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17,47 * * * *'
+    - cron: '*/5 * * * *'
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: oci-a1-capacity-hunter
@@ -31,4 +32,14 @@ jobs:
       - name: Install OCI SDK
         run: python -m pip install --disable-pip-version-check 'oci>=2.140,<3'
       - name: Attempt Always Free launch
+        id: launch
         run: python scripts/oci_a1_hunter.py
+      - name: Disable capacity hunter after successful provisioning
+        if: steps.launch.outputs.provisioned == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "OCI instance accepted or already exists: ${{ steps.launch.outputs.instance_id }}"
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/oci-a1-hunter.yml/disable"
+          echo "Disabled future scheduled capacity-hunter runs."
+
