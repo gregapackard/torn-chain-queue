@@ -89,12 +89,67 @@ async function checkVersion(){try{let r=await db("chain_client_config?config_id=
 function versionGuard(){if(!versionState.blocked)return true;msg("UPDATE REQUIRED — v"+VERSION+" is below minimum v"+versionState.minimum);alert("Cloudy\'s Chain Manager v"+VERSION+" is no longer supported. Update to v"+versionState.latest+" before using the queue.");return false}
 async function control(action,value=null){if(!leader())return false;let r=await rpc("chain_session_control",{p_session:S,p_leader_id:me.id,p_action:action,p_value:value==null?null:String(value)});if(!rtJoined)await load();return r}
 function leader(){return !!me&&+session.leader_id===me.id}
-let rtLoadSerial=0,rtStateRevision=0;
-function rtStop(){clearTimeout(window.__cqRtReconnect);clearInterval(rtHeartbeat);rtHeartbeat=null;rtJoined=false;if(rtSocket){try{rtSocket.onclose=null;rtSocket.close()}catch{}}rtSocket=null}
-function rtSend(topic,event,payload){if(rtSocket&&rtSocket.readyState===1)try{let ref=String(++rtRef),m={topic,event,payload,ref};if(event==="phx_join")m.join_ref=ref;rtSocket.send(JSON.stringify(m))}catch{}}
+let rtLoadSerial=0,rtStateRevision=0,rtJoinRef=null,rtJoinTopic=null,rtReconnectAttempt=0;
+function rtStop(){
+ rtJoinRef=null;rtJoinTopic=null;
+ clearTimeout(window.__cqRtReconnect);window.__cqRtReconnect=null;
+ clearInterval(rtHeartbeat);rtHeartbeat=null;rtJoined=false;rtReconnectAttempt=0;
+ const socket=rtSocket;rtSocket=null;
+ if(socket){try{socket.onclose=null;socket.close()}catch{}}
+}
+function scheduleRealtimeReconnect(){
+ if(!activeLoop||!session.active||S==="pending")return;
+ clearTimeout(window.__cqRtReconnect);
+ const base=Math.min(60000,2000*Math.pow(2,Math.min(rtReconnectAttempt,5)));
+ const delay=Math.round(base*(0.8+Math.random()*0.4));
+ rtReconnectAttempt++;
+ window.__cqRtReconnect=setTimeout(()=>{
+  window.__cqRtReconnect=null;
+  if(!rtSocket&&activeLoop&&session.active)startRealtime();
+ },delay);
+}
+function rtSend(topic,event,payload){if(rtSocket&&rtSocket.readyState===1)try{let ref=String(++rtRef),m={topic,event,payload,ref};if(event==="phx_join"){m.join_ref=ref;rtJoinRef=ref;rtJoinTopic=topic}rtSocket.send(JSON.stringify(m));return ref}catch{}return null}
 function rtApplyQueue(d){let typ=String(d?.type||d?.eventType||"").toUpperCase(),r=d?.record||d?.new||{},o=d?.old_record||d?.old||{},sid=String(r.session_id||o.session_id||"");if(sid!==S)return;rtStateRevision++;let id=+(r.player_id||o.player_id||0);if(!id)return;if(typ==="DELETE")q=q.filter(x=>+x.player_id!==id);else{let i=q.findIndex(x=>+x.player_id===id);if(i>=0)q[i]={...q[i],...r};else q.push(r)}q.sort((a,b)=>(+a.position||999999)-(+b.position||999999)||String(a.joined_at||"").localeCompare(String(b.joined_at||"")));lastSharedLoad=Date.now();diag.queue=true;render()}
 function rtApplySession(d){let r=d?.record||d?.new||{};if(String(r.session_id||"")!==S)return;rtStateRevision++;let wasLeader=leader();session={...session,...r};if(!wasLeader&&leader())lastChainSnapshotPoll=0;lastSharedLoad=Date.now();localClock();render();if(session.active===false)stopActiveLoop()}
-function startRealtime(){if(rtSocket||!activeLoop||!session.active||S==="pending")return;try{let ws=U.replace(/^https:/,"wss:")+"/realtime/v1/websocket?apikey="+encodeURIComponent(K)+"&vsn=1.0.0",topic="realtime:chain-manager:"+S;rtJoined=false;rtSocket=new WebSocket(ws);rtSocket.onopen=()=>{rtSend(topic,"phx_join",{config:{broadcast:{ack:false,self:false},presence:{enabled:false},postgres_changes:[{event:"*",schema:"public",table:"chain_queue",filter:"session_id=eq."+S},{event:"UPDATE",schema:"public",table:"chain_sessions",filter:"session_id=eq."+S}]}});clearInterval(rtHeartbeat);rtHeartbeat=setInterval(()=>rtSend("phoenix","heartbeat",{}),25000)};rtSocket.onmessage=e=>{try{let m=JSON.parse(e.data);if(m?.event==="phx_reply"){if(m?.payload?.status==="ok")rtJoined=true;else{rtJoined=false;try{rtSocket.close()}catch{}}return}if(m?.event==="phx_error"){rtJoined=false;try{rtSocket.close()}catch{};return}if(m?.event!=="postgres_changes")return;let d=m?.payload?.data||m?.payload||{};if(d.table==="chain_queue")rtApplyQueue(d);else if(d.table==="chain_sessions")rtApplySession(d)}catch{}};rtSocket.onerror=()=>{rtJoined=false};rtSocket.onclose=()=>{rtJoined=false;clearInterval(rtHeartbeat);rtHeartbeat=null;rtSocket=null;if(activeLoop&&session.active){clearTimeout(window.__cqRtReconnect);window.__cqRtReconnect=setTimeout(startRealtime,5000)}}}catch{rtJoined=false;rtSocket=null}}
+function startRealtime(){
+ if(rtSocket||!activeLoop||!session.active||S==="pending")return;
+ try{
+  const ws=U.replace(/^https:/,"wss:")+"/realtime/v1/websocket?apikey="+encodeURIComponent(K)+"&vsn=1.0.0";
+  const topic="realtime:chain-manager:"+S;
+  const socket=new WebSocket(ws);rtSocket=socket;rtJoined=false;rtJoinRef=null;rtJoinTopic=null;
+  socket.onopen=()=>{
+   if(rtSocket!==socket)return;
+   rtSend(topic,"phx_join",{config:{broadcast:{ack:false,self:false},presence:{enabled:false},postgres_changes:[{event:"*",schema:"public",table:"chain_queue",filter:"session_id=eq."+S},{event:"UPDATE",schema:"public",table:"chain_sessions",filter:"session_id=eq."+S}]}});
+   clearInterval(rtHeartbeat);rtHeartbeat=setInterval(()=>rtSend("phoenix","heartbeat",{}),25000);
+  };
+  socket.onmessage=e=>{
+   if(rtSocket!==socket)return;
+   try{
+    const m=JSON.parse(e.data);
+    if(m?.event==="phx_reply"){
+     if(String(m.ref||"")!==String(rtJoinRef||"")||m.topic!==rtJoinTopic)return;
+     if(m?.payload?.status==="ok"){
+      const recovered=!rtJoined;
+      rtJoined=true;rtReconnectAttempt=0;
+      if(recovered)load().catch(err=>{diag.queue=false;msg("Realtime resync failed: "+(err?.message||"failed"))});
+     }else{rtJoined=false;try{socket.close()}catch{}}
+     return;
+    }
+    if(m?.event==="phx_error"){rtJoined=false;try{socket.close()}catch{};return}
+    if(m?.event!=="postgres_changes")return;
+    const d=m?.payload?.data||m?.payload||{};
+    if(d.table==="chain_queue")rtApplyQueue(d);
+    else if(d.table==="chain_sessions")rtApplySession(d);
+   }catch{}
+  };
+  socket.onerror=()=>{if(rtSocket===socket)rtJoined=false};
+  socket.onclose=()=>{
+   if(rtSocket!==socket)return;
+   rtJoined=false;rtJoinRef=null;rtJoinTopic=null;clearInterval(rtHeartbeat);rtHeartbeat=null;rtSocket=null;
+   scheduleRealtimeReconnect();
+  };
+ }catch(e){rtJoined=false;rtSocket=null;scheduleRealtimeReconnect()}
+}
 function stopActiveLoop(){activeLoop=false;clearTimeout(window.__cqFast);clearInterval(window.__cqClock);rtStop();safeText("#st","IDLE");localClock();render();clearTimeout(window.__cqIdle);if(S!=="pending")window.__cqIdle=setTimeout(checkForActiveSession,300000)}
 async function startActiveLoop(){if(activeLoop||!session.active)return;activeLoop=true;clearTimeout(window.__cqIdle);startRealtime();await probeFactionApi();try{await syncTornClock()}catch(e){msg("Torn clock sync: "+(e?.message||"failed"))}if(q.some(x=>+x.player_id===me?.id))try{await rpc("chain_capability",{p_session:S,p_player_id:me.id,p_can_lead:canLead});await load()}catch(e){await reportError("Capability sync",e,"chain_capability")}if(leader())try{await syncChainSnapshot()}catch(e){await reportError("Chain snapshot",e,"/faction?selections=chain,timestamp");localClock()}clearTimeout(window.__cqFast);clearInterval(window.__cqClock);await pollFast();window.__cqClock=setInterval(()=>{localClock();render()},250)}
 async function setSessionActive(on){if(!me||me.id!==OWNER_ID)return msg("Only Cloudy can start/end the shared session");let ok=await rpc("chain_set_active",{p_session:S,p_player_id:me.id,p_active:!!on});if(!ok)return msg("Session change failed");await load();if(on){await startActiveLoop();msg("Chain Manager session STARTED")}else{stopActiveLoop();msg("Chain Manager session ENDED — clients sleeping")}}
