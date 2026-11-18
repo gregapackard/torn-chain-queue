@@ -58,33 +58,42 @@ function tornNow(){let w=typeof unsafeWindow!=="undefined"?unsafeWindow:window;t
 function localClock(){let snap=+session.chain_torn_timestamp||0;if(optimisticEndAt&&snap>optimisticSnapshotTs){optimisticEndAt=0;optimisticSnapshotTs=0}count=+session.chain_count||0;if(optimisticEndAt&&snap<=optimisticSnapshotTs){secs=Math.max(0,Math.ceil((optimisticEndAt-tornNow())/1000));return}let end=+session.chain_end_at||0;if(count<=0||end<=0){secs=null;return}secs=Math.ceil((end*1000-tornNow())/1000)}
 async function syncChainSnapshot(){let sent=Date.now(),j=await torn("/faction?selections=chain,timestamp"),recv=Date.now(),c=j.chain||{},ts=+(j.timestamp??0),ct=+(c.current??0),cm=+(c.max??c.maximum??0),end=+(c.end??0),cool=+(c.cooldown??0);if(!Number.isFinite(ts)||ts<=0)throw Error("Invalid Torn chain timestamp");if(!Number.isFinite(ct)||ct<0||!Number.isFinite(cm)||cm<0||!Number.isFinite(end)||end<0||!Number.isFinite(cool)||cool<0)throw Error("Invalid Torn chain snapshot");let tms=ts<1e12?ts*1000:ts;tornClockOffset=tms-((sent+recv)/2);lastTornClockSync=recv;lastChainSnapshotPoll=recv;let applied=await rpc("chain_apply_snapshot",{p_session:S,p_torn_timestamp:Math.floor(tms/1000),p_current:ct,p_max:cm,p_end:end,p_cooldown:cool});session.chain_torn_timestamp=Math.floor(tms/1000);session.chain_count=ct;session.chain_max=cm;session.chain_end_at=end;session.chain_cooldown_at=cool;session.chain_timer_seconds=ct>0&&end>0?Math.max(0,Math.min(600,end-Math.floor(tms/1000))):0;session.chain_timer_synced_at=new Date().toISOString();localClock();render();return {timestamp:Math.floor(tms/1000),current:ct,max:cm,end,cooldown:cool,applied}}
 async function load(){
+ const serial=++rtLoadSerial,revision=rtStateRevision,scope=S;
  const getRows=async path=>{
-   let r=await db(path,{method:"GET"});
-   if(r===undefined){
-     await new Promise(ok=>setTimeout(ok,250));
-     r=await db(path,{method:"GET"})
-   }
-   return r
+  let r=await db(path,{method:"GET"});
+  if(r===undefined){
+   await new Promise(ok=>setTimeout(ok,250));
+   r=await db(path,{method:"GET"});
+  }
+  return r;
  };
- let nq=await getRows("chain_queue?session_id=eq."+S+"&select=*&order=position.asc,joined_at.asc");
- if(!Array.isArray(nq)){
-   lastSharedLoad=Date.now();diag.queue=true;localClock();render();return false
+ try{
+  const nq=await getRows("chain_queue?session_id=eq."+encodeURIComponent(S)+"&select=*&order=position.asc,joined_at.asc");
+  if(!Array.isArray(nq))throw Error("Invalid queue response");
+  const ns=await getRows("chain_sessions?session_id=eq."+encodeURIComponent(S)+"&select=*");
+  if(!Array.isArray(ns)||ns.length!==1)throw Error("Invalid or missing session response");
+  // Ignore older requests and snapshots overtaken by Realtime events.
+  if(serial!==rtLoadSerial||revision!==rtStateRevision||scope!==S)return false;
+  q=nq;session=ns[0];
+  lastSharedLoad=Date.now();diag.queue=true;
+  if(activeLoop&&session.active===false){stopActiveLoop();return true}
+  localClock();render();return true;
+ }catch(e){
+  if(serial!==rtLoadSerial||scope!==S)return false;
+  diag.queue=false;diag.last="Queue sync: "+(e?.message||"failed");
+  msg("Queue sync failed — retaining last confirmed data");
+  localClock();render();return false;
  }
- let ns=await getRows("chain_sessions?session_id=eq."+S+"&select=*");
- if(!Array.isArray(ns)){
-   lastSharedLoad=Date.now();diag.queue=true;localClock();render();return false
- }
- q=nq;if(ns[0])session=ns[0];if(activeLoop&&session.active===false)activeLoop=false;
- lastSharedLoad=Date.now();diag.queue=true;localClock();render();return true
 }
 async function checkVersion(){try{let r=await db("chain_client_config?config_id=eq.main&select=latest_version,minimum_version",{method:"GET"});if(Array.isArray(r)&&r[0]){versionState.latest=String(r[0].latest_version||VERSION);versionState.minimum=String(r[0].minimum_version||VERSION);versionState.blocked=vercmp(VERSION,versionState.minimum)<0;versionState.update=vercmp(VERSION,versionState.latest)<0;versionState.checked=true}else versionState.checked=false}catch(e){versionState.checked=false;versionState.blocked=false}render();return !versionState.blocked}
 function versionGuard(){if(!versionState.blocked)return true;msg("UPDATE REQUIRED — v"+VERSION+" is below minimum v"+versionState.minimum);alert("Cloudy\'s Chain Manager v"+VERSION+" is no longer supported. Update to v"+versionState.latest+" before using the queue.");return false}
 async function control(action,value=null){if(!leader())return false;let r=await rpc("chain_session_control",{p_session:S,p_leader_id:me.id,p_action:action,p_value:value==null?null:String(value)});if(!rtJoined)await load();return r}
 function leader(){return !!me&&+session.leader_id===me.id}
+let rtLoadSerial=0,rtStateRevision=0;
 function rtStop(){clearTimeout(window.__cqRtReconnect);clearInterval(rtHeartbeat);rtHeartbeat=null;rtJoined=false;if(rtSocket){try{rtSocket.onclose=null;rtSocket.close()}catch{}}rtSocket=null}
 function rtSend(topic,event,payload){if(rtSocket&&rtSocket.readyState===1)try{let ref=String(++rtRef),m={topic,event,payload,ref};if(event==="phx_join")m.join_ref=ref;rtSocket.send(JSON.stringify(m))}catch{}}
-function rtApplyQueue(d){let typ=String(d?.type||d?.eventType||"").toUpperCase(),r=d?.record||d?.new||{},o=d?.old_record||d?.old||{},sid=String(r.session_id||o.session_id||"");if(sid!==S)return;let id=+(r.player_id||o.player_id||0);if(!id)return;if(typ==="DELETE")q=q.filter(x=>+x.player_id!==id);else{let i=q.findIndex(x=>+x.player_id===id);if(i>=0)q[i]={...q[i],...r};else q.push(r)}q.sort((a,b)=>(+a.position||999999)-(+b.position||999999)||String(a.joined_at||"").localeCompare(String(b.joined_at||"")));lastSharedLoad=Date.now();diag.queue=true;render()}
-function rtApplySession(d){let r=d?.record||d?.new||{};if(String(r.session_id||"")!==S)return;let wasLeader=leader();session={...session,...r};if(!wasLeader&&leader())lastChainSnapshotPoll=0;lastSharedLoad=Date.now();localClock();render();if(session.active===false)stopActiveLoop()}
+function rtApplyQueue(d){let typ=String(d?.type||d?.eventType||"").toUpperCase(),r=d?.record||d?.new||{},o=d?.old_record||d?.old||{},sid=String(r.session_id||o.session_id||"");if(sid!==S)return;rtStateRevision++;let id=+(r.player_id||o.player_id||0);if(!id)return;if(typ==="DELETE")q=q.filter(x=>+x.player_id!==id);else{let i=q.findIndex(x=>+x.player_id===id);if(i>=0)q[i]={...q[i],...r};else q.push(r)}q.sort((a,b)=>(+a.position||999999)-(+b.position||999999)||String(a.joined_at||"").localeCompare(String(b.joined_at||"")));lastSharedLoad=Date.now();diag.queue=true;render()}
+function rtApplySession(d){let r=d?.record||d?.new||{};if(String(r.session_id||"")!==S)return;rtStateRevision++;let wasLeader=leader();session={...session,...r};if(!wasLeader&&leader())lastChainSnapshotPoll=0;lastSharedLoad=Date.now();localClock();render();if(session.active===false)stopActiveLoop()}
 function startRealtime(){if(rtSocket||!activeLoop||!session.active||S==="pending")return;try{let ws=U.replace(/^https:/,"wss:")+"/realtime/v1/websocket?apikey="+encodeURIComponent(K)+"&vsn=1.0.0",topic="realtime:chain-manager:"+S;rtJoined=false;rtSocket=new WebSocket(ws);rtSocket.onopen=()=>{rtSend(topic,"phx_join",{config:{broadcast:{ack:false,self:false},presence:{enabled:false},postgres_changes:[{event:"*",schema:"public",table:"chain_queue",filter:"session_id=eq."+S},{event:"UPDATE",schema:"public",table:"chain_sessions",filter:"session_id=eq."+S}]}});clearInterval(rtHeartbeat);rtHeartbeat=setInterval(()=>rtSend("phoenix","heartbeat",{}),25000)};rtSocket.onmessage=e=>{try{let m=JSON.parse(e.data);if(m?.event==="phx_reply"){if(m?.payload?.status==="ok")rtJoined=true;else{rtJoined=false;try{rtSocket.close()}catch{}}return}if(m?.event==="phx_error"){rtJoined=false;try{rtSocket.close()}catch{};return}if(m?.event!=="postgres_changes")return;let d=m?.payload?.data||m?.payload||{};if(d.table==="chain_queue")rtApplyQueue(d);else if(d.table==="chain_sessions")rtApplySession(d)}catch{}};rtSocket.onerror=()=>{rtJoined=false};rtSocket.onclose=()=>{rtJoined=false;clearInterval(rtHeartbeat);rtHeartbeat=null;rtSocket=null;if(activeLoop&&session.active){clearTimeout(window.__cqRtReconnect);window.__cqRtReconnect=setTimeout(startRealtime,5000)}}}catch{rtJoined=false;rtSocket=null}}
 function stopActiveLoop(){activeLoop=false;clearTimeout(window.__cqFast);clearInterval(window.__cqClock);rtStop();safeText("#st","IDLE");localClock();render();clearTimeout(window.__cqIdle);if(S!=="pending")window.__cqIdle=setTimeout(checkForActiveSession,300000)}
 async function startActiveLoop(){if(activeLoop||!session.active)return;activeLoop=true;clearTimeout(window.__cqIdle);startRealtime();await probeFactionApi();try{await syncTornClock()}catch(e){msg("Torn clock sync: "+(e?.message||"failed"))}if(q.some(x=>+x.player_id===me?.id))try{await rpc("chain_capability",{p_session:S,p_player_id:me.id,p_can_lead:canLead});await load()}catch(e){await reportError("Capability sync",e,"chain_capability")}if(leader())try{await syncChainSnapshot()}catch(e){await reportError("Chain snapshot",e,"/faction?selections=chain,timestamp");localClock()}clearTimeout(window.__cqFast);clearInterval(window.__cqClock);await pollFast();window.__cqClock=setInterval(()=>{localClock();render()},250)}
