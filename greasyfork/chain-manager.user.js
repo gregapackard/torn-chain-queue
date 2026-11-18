@@ -290,7 +290,7 @@ async function cqAttackBackfill(scope,cursor,limit,initialPage=null){
   to=next;
  }
  if(!found)return {found:false,first,records:[]};
- return {found:true,first,records:[...seen.values()].filter(good).sort((x,y)=>cqAttackTime(x)-cqAttackTime(y)||Number(cqAttackId(x))-Number(cqAttackId(y))};
+ return {found:true,first,records:[...seen.values()].filter(good).sort((x,y)=>cqAttackTime(x)-cqAttackTime(y)||Number(cqAttackId(x))-Number(cqAttackId(y)))};
 }
 async function pollMine(){
  if(!me||!q.some(x=>+x.player_id===me.id)||Date.now()-lastMinePoll<(session.leader_id&&Date.now()-Date.parse(session.leader_heartbeat_at||0)<30000?15000:6000))return;
