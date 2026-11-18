@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   actions: write
+  issues: write
 
 concurrency:
   group: oci-a1-capacity-hunter
@@ -34,6 +35,29 @@ jobs:
       - name: Attempt Always Free launch
         id: launch
         run: python scripts/oci_a1_hunter.py
+      - name: Notify repository owner through GitHub issue
+        if: steps.launch.outputs.provisioned == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INSTANCE_ID: ${{ steps.launch.outputs.instance_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          cat > /tmp/oci-success.md <<EOF
+          Oracle Cloud accepted or detected the Chain Queue instance.
+
+          **Instance OCID:** \`$INSTANCE_ID\`
+          **Shape:** VM.Standard.A1.Flex (2 OCPU, 12 GB RAM)
+          **Workflow run:** $RUN_URL
+
+          Next: confirm the instance reaches RUNNING, then deploy and verify the latest Chain Queue before switching traffic.
+          The capacity-hunter workflow is configured to disable itself after this run.
+
+          This issue is assigned to the repository owner to generate a GitHub notification; email delivery depends on the owner's GitHub notification settings.
+          EOF
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "OCI Chain Queue instance provisioned — migration ready" \
+            --body-file /tmp/oci-success.md \
+            --assignee "${GITHUB_REPOSITORY_OWNER}"
       - name: Disable capacity hunter after successful provisioning
         if: steps.launch.outputs.provisioned == 'true'
         env:
