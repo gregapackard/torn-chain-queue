@@ -3,7 +3,6 @@
 import os
 import sys
 import tempfile
-import time
 
 import oci
 
@@ -19,6 +18,15 @@ def required(name):
     if not value:
         raise ValueError(f"Missing {name}")
     return value
+
+
+def report_success(instance_id):
+    """Tell the workflow to disable future scheduled attempts."""
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write("provisioned=true\\n".replace("\\n", "\n"))
+            handle.write(f"instance_id={instance_id}\\n".replace("\\n", "\n"))
 
 
 def main():
@@ -57,6 +65,7 @@ def main():
         if active:
             for i in active:
                 print(f"Existing instance {i.id} state={i.lifecycle_state}; no launch attempted")
+            report_success(active[0].id)
             return
         # Safety: never consume resources beyond the documented Always Free A1 allowance.
         all_instances = oci.pagination.list_call_get_all_results(
@@ -103,6 +112,7 @@ def main():
                 result = compute.launch_instance(details).data
                 print(f"CREATED instance OCID: {result.id}")
                 print("Provisioning accepted. Check OCI Console for public IP and RUNNING state.")
+                report_success(result.id)
                 return
             except oci.exceptions.ServiceError as exc:
                 msg = str(exc.message or "")
