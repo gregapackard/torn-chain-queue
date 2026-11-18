@@ -273,7 +273,7 @@ async function cqAttackBackfill(scope,cursor,limit,initialPage=null){
   if(!cqOwnPoller()||!activeLoop)return {found:false,first,records:[]};
   const path="/"+scope+"/attacks?limit="+limit+"&sort=DESC&filters=idFilter"+(to===null?"":"&to="+to);
   const raw=page===0&&initialPage!==null?initialPage:rows(await torn(path));
-  if(!raw.length){found=page>0;break}
+  if(!raw.length)break
   if(first===null)first=cqAttackId(raw[0]);
   let oldest=Infinity,previous=Infinity;
   for(const x of raw){
@@ -307,10 +307,11 @@ async function pollMine(){
  if(hits.length){lastEnergyPush=0;await pushEnergy()}
 }
 async function pollLeader(){
- if(!leader()||Date.now()-lastLeaderPoll<4000)return;
- lastLeaderPoll=Date.now();
- // Heartbeat must not depend on Torn attack history succeeding.
+ if(!leader())return;
+ // Heartbeat must not depend on Torn attack history succeeding or gap retry delays.
  if(cqOwnPoller()&&activeLoop&&Date.now()-lastHeartbeat>=15000){await control("heartbeat");lastHeartbeat=Date.now()}
+ if(Date.now()-lastLeaderPoll<4000)return;
+ lastLeaderPoll=Date.now()
  // One authoritative ID-filtered fetch per check; reuse it for catch-up.
  // Only paginate if the saved cursor is absent from this first page.
  const initial=rows(await torn("/faction/attacks?limit=100&sort=DESC&filters=idFilter"));
