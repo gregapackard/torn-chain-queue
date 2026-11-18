@@ -210,8 +210,18 @@ function startRealtime(){
   };
  }catch(e){rtJoined=false;rtSocket=null;scheduleRealtimeReconnect()}
 }
-function stopActiveLoop(){cqStopLease();activeLoop=false;clearTimeout(window.__cqFast);clearInterval(window.__cqClock);rtStop();safeText("#st","IDLE");localClock();render();clearTimeout(window.__cqIdle);if(S!=="pending")window.__cqIdle=setTimeout(checkForActiveSession,300000)}
-async function startActiveLoop(){if(activeLoop||!session.active)return;activeLoop=true;clearTimeout(window.__cqIdle);startRealtime();cqStartLease();if(cqOwnPoller())await probeFactionApi();if(cqOwnPoller())try{await syncTornClock()}catch(e){msg("Torn clock sync: "+(e?.message||"failed"))}if(cqOwnPoller()&&q.some(x=>+x.player_id===me?.id))try{await rpc("chain_capability",{p_session:S,p_player_id:me.id,p_can_lead:canLead});await load()}catch(e){await reportError("Capability sync",e,"chain_capability")}if(cqOwnPoller()&&leader())try{await syncChainSnapshot()}catch(e){await reportError("Chain snapshot",e,"/faction?selections=chain,timestamp");localClock()}clearTimeout(window.__cqFast);clearInterval(window.__cqClock);await pollFast();window.__cqClock=setInterval(()=>{localClock();render()},250)}
+// Mirror tabs never call Torn APIs. Keep a Supabase-only safety refresh in case
+// Realtime is connected but changes are not delivered (or the browser sleeps).
+let cqMirrorRefreshBusy=false;
+async function cqMirrorRefresh(){
+ if(!activeLoop||!session.active||cqOwnPoller()||cqMirrorRefreshBusy)return;
+ if(Date.now()-lastSharedLoad<12000)return;
+ cqMirrorRefreshBusy=true;
+ try{await load()}catch(e){await reportError("Mirror sync",e,"Supabase load")}
+ finally{cqMirrorRefreshBusy=false}
+}
+function stopActiveLoop(){clearInterval(window.__cqMirrorRefresh);window.__cqMirrorRefresh=null;cqStopLease();activeLoop=false;clearTimeout(window.__cqFast);clearInterval(window.__cqClock);rtStop();safeText("#st","IDLE");localClock();render();clearTimeout(window.__cqIdle);if(S!=="pending")window.__cqIdle=setTimeout(checkForActiveSession,300000)}
+async function startActiveLoop(){if(activeLoop||!session.active)return;activeLoop=true;clearInterval(window.__cqMirrorRefresh);window.__cqMirrorRefresh=setInterval(cqMirrorRefresh,4000);clearTimeout(window.__cqIdle);startRealtime();cqStartLease();if(cqOwnPoller())await probeFactionApi();if(cqOwnPoller())try{await syncTornClock()}catch(e){msg("Torn clock sync: "+(e?.message||"failed"))}if(cqOwnPoller()&&q.some(x=>+x.player_id===me?.id))try{await rpc("chain_capability",{p_session:S,p_player_id:me.id,p_can_lead:canLead});await load()}catch(e){await reportError("Capability sync",e,"chain_capability")}if(cqOwnPoller()&&leader())try{await syncChainSnapshot()}catch(e){await reportError("Chain snapshot",e,"/faction?selections=chain,timestamp");localClock()}clearTimeout(window.__cqFast);clearInterval(window.__cqClock);await pollFast();window.__cqClock=setInterval(()=>{localClock();render()},250)}
 async function setSessionActive(on){if(!me||me.id!==OWNER_ID)return msg("Only Cloudy can start/end the shared session");let ok=await rpc("chain_set_active",{p_session:S,p_player_id:me.id,p_active:!!on});if(!ok)return msg("Session change failed");await load();if(on){await startActiveLoop();msg("Chain Manager session STARTED")}else{stopActiveLoop();msg("Chain Manager session ENDED — clients sleeping")}}
 async function checkForActiveSession(){clearTimeout(window.__cqIdle);if(activeLoop||S==="pending")return;try{let r=await db("chain_sessions?session_id=eq."+S+"&select=active",{method:"GET"});if(Array.isArray(r)&&r[0]?.active){session.active=true;await load();await startActiveLoop();msg("Session is active — LIVE")}}catch{}finally{if(!activeLoop&&S!=="pending")window.__cqIdle=setTimeout(checkForActiveSession,300000)}}
 function restoreIdentity(){try{let x=JSON.parse(storeGet("cq_identity","null"));if(x?.id){me={id:+x.id,name:x.name||"Player"};diag.id=true;return true}}catch{}diag.id=false;return false}
